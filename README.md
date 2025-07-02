@@ -38,3 +38,4 @@ components/admin/AssignmentOverviewView.tsx
 components/today/TodayAdminView.tsx
 components/today/TodayHRView.tsx
 components/coaching/CoachingAdminView.tsx# vinayfit-app
+# vinay.fit-tsx

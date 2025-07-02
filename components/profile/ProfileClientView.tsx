@@ -27,8 +27,18 @@ const weightData = [
   { date: '6/22', weight: 69.5 },
 ];
 
+// Dummy chest data for demonstration
+const chestData = [
+  { date: '4/24', value: 98 },
+  { date: '5/6', value: 97.5 },
+  { date: '5/18', value: 97 },
+  { date: '5/30', value: 96.5 },
+  { date: '6/11', value: 96 },
+  { date: '6/22', value: 95.5 },
+];
+
 export default function ProfileClientView() {
-  const colorScheme = useColorScheme();
+  const colorScheme = useColorScheme() ?? 'light';
   const colors = getColors(colorScheme);
   const styles = createStyles(colors);
   const { userRole, userName, setUserRole } = useUserRole();
@@ -99,13 +109,7 @@ export default function ProfileClientView() {
       color: colors.info,
       onPress: () => router.push('/fitness-goals'),
     }] : []),
-    {
-      id: 'logout',
-      title: 'Logout',
-      icon: LogOut,
-      color: colors.error,
-      onPress: handleLogout,
-    },
+  
   ];
 
   const renderWeightChart = () => {
@@ -149,18 +153,54 @@ export default function ProfileClientView() {
     );
   };
 
+  const renderMetricChart = (data: { date: string; value: number }[], label: string) => {
+    const max = Math.max(...data.map(d => d.value));
+    const min = Math.min(...data.map(d => d.value));
+    const range = max - min || 1;
+    return (
+      <View style={styles.chartContainer}>
+        <View style={styles.chartArea}>
+          {data.map((point, index) => {
+            const height = ((point.value - min) / range) * 60;
+            const x = (index / (data.length - 1)) * (width - 120);
+            return (
+              <View
+                key={index}
+                style={[
+                  styles.chartPoint,
+                  {
+                    left: x,
+                    bottom: height,
+                  },
+                ]}
+              />
+            );
+          })}
+          {/* Chart line logic can be added here if needed */}
+        </View>
+        <View style={styles.chartLabels}>
+          {data.map((point, index) => (
+            <Text key={index} style={styles.chartLabel}>
+              {point.date}
+            </Text>
+          ))}
+        </View>
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+      {/* <View style={styles.header}>
         <Text style={styles.title}>You</Text>
         <TouchableOpacity style={styles.settingsButton} onPress={() => router.push('/settings')}>
           <Settings size={24} color={colors.textSecondary} />
         </TouchableOpacity>
-      </View>
+      </View> */}
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Profile Header */}
-        <View style={styles.profileHeader}>
+        {/* <View style={styles.profileHeader}>
           <LinearGradient
             colors={colorScheme === 'dark' ? ['#1E40AF', '#3730A3'] : ['#667EEA', '#764BA2']}
             style={styles.profileAvatar}
@@ -185,7 +225,7 @@ export default function ProfileClientView() {
               </TouchableOpacity>
             )}
           </View>
-        </View>
+        </View> */}
 
         {/* Stats Cards */}
         <View style={styles.statsContainer}>
@@ -206,27 +246,37 @@ export default function ProfileClientView() {
           </View>
         </View>
 
-        {/* Metrics Section */}
-        <View style={styles.metricsSection}>
+         <View style={styles.metricsSection}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Metrics</Text>
-            <TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push('/client-metrics')}>
               <Text style={styles.viewMoreText}>View more</Text>
             </TouchableOpacity>
           </View>
-          
-          <View style={styles.metricsCard}>
-            <Text style={styles.metricsTitle}>WEIGHT (KG)</Text>
-            
-            <View style={styles.weightInfo}>
-              <Text style={styles.currentWeight}>{currentWeight}</Text>
-              <Text style={styles.weightProgress}>
-                {currentWeight > goalWeight ? `${(currentWeight - goalWeight).toFixed(1)} kg to goal` : 'Goal reached!'}
-              </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 4 }}>
+            <View style={[styles.metricsCard, { width: width - 80, marginRight: 16 }]}> 
+              <Text style={styles.metricsTitle}>WEIGHT (KG)</Text>
+              <View style={styles.weightInfo}>
+                <Text style={styles.currentWeight}>{currentWeight}</Text>
+                <Text style={styles.weightProgress}>
+                  {currentWeight > goalWeight ? `${(currentWeight - goalWeight).toFixed(1)} kg to goal` : 'Goal reached!'}
+                </Text>
+              </View>
+              {renderMetricChart(weightData.map(d => ({ date: d.date, value: d.weight })), 'Weight')}
             </View>
-            
-            {renderWeightChart()}
-          </View>
+            <View style={[styles.metricsCard, { width: width - 80 }]}> 
+              <Text style={styles.metricsTitle}>CHEST (CM)</Text>
+              <View style={styles.weightInfo}>
+                <Text style={styles.currentWeight}>{chestData[chestData.length - 1].value}</Text>
+                <Text style={styles.weightProgress}>
+                  {chestData[0].value - chestData[chestData.length - 1].value > 0
+                    ? `${(chestData[0].value - chestData[chestData.length - 1].value).toFixed(1)} cm progress`
+                    : 'No change'}
+                </Text>
+              </View>
+              {renderMetricChart(chestData, 'Chest')}
+            </View>
+          </ScrollView>
         </View>
 
         {/* Menu Items */}
@@ -493,5 +543,45 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontFamily: 'Inter-Medium',
     fontSize: 16,
     color: colors.text,
+  },
+  weightSummary: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 16,
+  },
+  summaryItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  summaryLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: 4,
+  },
+  summaryValue: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 16,
+    color: colors.text,
+  },
+  viewDetailsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  viewDetailsText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: colors.primary,
+    marginRight: 8,
   },
 });

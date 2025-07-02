@@ -230,6 +230,16 @@ export default function ProfileView() {
             <Text style={styles.profileInitials}>{userInitials}</Text>
           </LinearGradient>
             )}
+              {userRole === 'client' && (
+           <LinearGradient
+            colors={colorScheme === 'dark' ? ['#1E40AF', '#3730A3'] : ['#667EEA', '#764BA2']}
+            style={styles.profileAvatar}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <Text style={styles.profileInitials}>{userInitials}</Text>
+          </LinearGradient>
+            )}
             
           <View style={styles.profileInfo}>
             <Text style={styles.profileName}>Hi, {displayName}!</Text>
@@ -342,7 +352,7 @@ export default function ProfileView() {
             {renderWeightChart()}
           </View>
         </View> */}
-// ...existing code...
+
 
 <View style={styles.menuSection}>
   {menuItems

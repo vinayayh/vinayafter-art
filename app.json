@@ -31,6 +31,14 @@
         "projectId": "d408820f-79b1-46a4-a48c-c3ef73e38d92"
       }
     },
-    "owner": "viralytrespect"
+    "owner": "viralytrespect",
+    "splash": {
+      "backgroundColor": "#000000"
+    },
+    "androidStatusBar": {
+      "backgroundColor": "#000000",
+      "barStyle": "light-content"
+    },
+    "backgroundColor": "#000000"
   }
 }

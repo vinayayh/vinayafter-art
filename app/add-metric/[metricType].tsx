@@ -30,7 +30,7 @@ const units = {
 };
 
 export default function AddMetricScreen() {
-  const colorScheme = useColorScheme();
+  const colorScheme = useColorScheme() ?? 'light';
   const colors = getColors(colorScheme);
   const styles = createStyles(colors);
   const { metricType } = useLocalSearchParams();

@@ -353,6 +353,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   filtersContent: {
     paddingHorizontal: 20,
+    maxHeight: 40,
   },
   filterChip: {
     backgroundColor: colors.surface,

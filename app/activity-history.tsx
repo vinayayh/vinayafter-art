@@ -801,10 +801,11 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 12,
     color: colors.textSecondary,
   },
-  filterContainer: {
-    marginTop: 16,
-    marginBottom: 8,
-  },
+ filterContainer: {
+  marginTop: 16,
+  marginBottom: 8,
+  maxHeight: 50, // This allows natural sizing up to 50px
+},
   filterContent: {
     paddingHorizontal: 20,
   },

@@ -11,12 +11,19 @@ import {
   Dimensions,
   Alert,
   Platform,
+  Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Plus, X, Camera, Image as ImageIcon, Grid3x3 as Grid3X3, List, Calendar, Weight, Percent, MoveHorizontal as MoreHorizontal, TrendingUp, Target, Star, Filter, Search, Share, Download, Eye, Zap } from 'lucide-react-native';
+import { ArrowLeft, Plus, X, Camera, Image as ImageIcon, Grid3x3 as Grid3X3, List, Calendar, Weight, Percent, MoveHorizontal as MoreHorizontal, TrendingUp, Target, Star, Filter, Search, Share as ShareIcon, Download, Eye, Zap, Ellipsis, Trash2, Info, Copy, Heart, Edit } from 'lucide-react-native';
+
+// import { ArrowLeft, Plus, X, Camera, Image as ImageIcon, Grid3x3 as Grid3X3, List, Calendar, Weight, Percent, MoveHorizontal as MoreHorizontal, TrendingUp, Target, Star, Filter, Search, Share, Download, Eye, Zap, Ellipsis, Trash2, Info, Copy, Heart, Edit } from 'lucide-react-native';
 import { useColorScheme, getColors } from '@/hooks/useColorScheme';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { router } from 'expo-router';
+import BottomSheet from '@/components/BottomSheet';
+import * as MediaLibrary from 'expo-media-library';
+import * as FileSystem from 'expo-file-system';
+import * as Clipboard from 'expo-clipboard';
 
 const { width, height } = Dimensions.get('window');
 
@@ -39,6 +46,7 @@ interface ProgressPhoto {
   pose: 'front' | 'side' | 'back' | 'custom';
   notes?: string;
   mood?: 'motivated' | 'confident' | 'determined' | 'proud' | 'focused';
+  isFavorite?: boolean;
 }
 
 interface ComparisonData {
@@ -53,6 +61,218 @@ export default function ProgressPhotoScreen() {
   const colorScheme = useColorScheme();
   const colors = getColors(colorScheme);
   const styles = createStyles(colors);
+const [isBottomSheetVisible, setIsBottomSheetVisible] = useState(false);
+const [isBottomMenuVisible, setIsBottomMenuVisible] = useState(false);
+  const [currentPhotoId, setCurrentPhotoId] = useState<string>('');
+ const showBottomSheet = () => {
+    setIsBottomSheetVisible(true);
+  };
+
+
+  const hideBottomSheet = () => {
+    setIsBottomSheetVisible(false);
+  };
+
+   const showBottomMenu = (photoId: string) => {
+    setCurrentPhotoId(photoId);
+    setIsBottomMenuVisible(true);
+  };
+  
+
+  const hideBottomMenu = () => {
+    setCurrentPhotoId('');
+
+    setIsBottomMenuVisible(false);
+  };
+
+ const handleSharePhoto = async () => {
+    try {
+      const currentPhoto = photos.find(p => p.id === currentPhotoId);
+      if (!currentPhoto) {
+        Alert.alert('Error', 'Photo not found');
+        return;
+      }
+
+      const result = await Share.share({
+        url: currentPhoto.imageUri,
+        message: `Check out my progress photo! ${currentPhoto.notes || ''}`,
+      });
+      
+      if (result.action === Share.sharedAction) {
+        console.log('Photo shared successfully');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to share photo');
+      console.error(error);
+    }
+    hideBottomMenu();
+  };
+
+  const handleEditPhoto = () => {
+    const currentPhoto = photos.find(p => p.id === currentPhotoId);
+    if (!currentPhoto) {
+      Alert.alert('Error', 'Photo not found');
+      return;
+    }
+
+    // Set the photo for editing and show the photo modal
+    setTempImageUri(currentPhoto.imageUri);
+    setNewPhoto({
+      weight: currentPhoto.weight,
+      bodyFat: currentPhoto.bodyFat,
+      musclePercentage: currentPhoto.musclePercentage,
+      measurements: currentPhoto.measurements,
+      date: currentPhoto.date,
+      time: currentPhoto.time,
+      tags: currentPhoto.tags,
+      pose: currentPhoto.pose,
+      notes: currentPhoto.notes,
+      mood: currentPhoto.mood
+    });
+    setShowPhotoModal(true);
+    hideBottomMenu();
+  };
+
+  const handleDownloadPhoto = async () => {
+    try {
+      const currentPhoto = photos.find(p => p.id === currentPhotoId);
+      if (!currentPhoto) {
+        Alert.alert('Error', 'Photo not found');
+        return;
+      }
+
+      // Request media library permissions
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission required', 'Please grant media library access to download photos');
+        return;
+      }
+
+      // For web or external URLs, we'll show a success message
+      // In a real app, you'd need to download the image first
+      if (currentPhoto.imageUri.startsWith('http')) {
+        Alert.alert('Success', 'Photo download initiated. Check your downloads folder.');
+      } else {
+        // Save to device gallery for local files
+        const asset = await MediaLibrary.createAssetAsync(currentPhoto.imageUri);
+        await MediaLibrary.createAlbumAsync('Progress Photos', asset, false);
+        Alert.alert('Success', 'Photo saved to your gallery');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to download photo');
+      console.error(error);
+    }
+    hideBottomMenu();
+  };
+
+  const handleSetAsFavorite = async () => {
+    try {
+      const currentPhoto = photos.find(p => p.id === currentPhotoId);
+      if (!currentPhoto) {
+        Alert.alert('Error', 'Photo not found');
+        return;
+      }
+
+      // Toggle favorite status
+      const newFavoriteStatus = !currentPhoto.isFavorite;
+      
+      // Update the photo in the photos array
+      setPhotos(prevPhotos => 
+        prevPhotos.map(photo => 
+          photo.id === currentPhotoId 
+            ? { ...photo, isFavorite: newFavoriteStatus }
+            : photo
+        )
+      );
+      
+      Alert.alert(
+        'Success', 
+        newFavoriteStatus ? 'Added to favorites' : 'Removed from favorites'
+      );
+    } catch (error) {
+      Alert.alert('Error', 'Failed to update favorite status');
+      console.error(error);
+    }
+    hideBottomMenu();
+  };
+
+  const handleCopyPhoto = async () => {
+    try {
+      const currentPhoto = photos.find(p => p.id === currentPhotoId);
+      if (!currentPhoto) {
+        Alert.alert('Error', 'Photo not found');
+        return;
+      }
+
+      // For web/external URLs, copy the URL to clipboard
+      if (currentPhoto.imageUri.startsWith('http')) {
+        await Clipboard.setStringAsync(currentPhoto.imageUri);
+        Alert.alert('Success', 'Photo URL copied to clipboard');
+      } else {
+        // For local files, copy image to clipboard
+        await Clipboard.setImageAsync(currentPhoto.imageUri);
+        Alert.alert('Success', 'Photo copied to clipboard');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to copy photo');
+      console.error(error);
+    }
+    hideBottomMenu();
+  };
+
+  const handleViewDetails = () => {
+    const currentPhoto = photos.find(p => p.id === currentPhotoId);
+    if (!currentPhoto) {
+      Alert.alert('Error', 'Photo not found');
+      return;
+    }
+
+    // Set the selected photo to show in detail modal
+    setSelectedPhoto(currentPhoto);
+    hideBottomMenu();
+  };
+
+  const handleDeletePhoto = () => {
+    const currentPhoto = photos.find(p => p.id === currentPhotoId);
+    if (!currentPhoto) {
+      Alert.alert('Error', 'Photo not found');
+      return;
+    }
+
+    Alert.alert(
+      'Delete Photo',
+      'Are you sure you want to delete this photo? This action cannot be undone.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Remove photo from the photos array
+              setPhotos(prevPhotos => prevPhotos.filter(photo => photo.id !== currentPhotoId));
+              
+              // Delete local file if it's a local file
+              if (currentPhoto.imageUri.startsWith('file://')) {
+                await FileSystem.deleteAsync(currentPhoto.imageUri);
+              }
+              
+              Alert.alert('Success', 'Photo deleted successfully');
+            } catch (error) {
+              Alert.alert('Error', 'Failed to delete photo');
+              console.error(error);
+            }
+          },
+        },
+      ]
+    );
+    hideBottomMenu();
+  };
+
 
   const [photos, setPhotos] = useState<ProgressPhoto[]>([
     {
@@ -71,7 +291,9 @@ export default function ProgressPhotoScreen() {
       tags: ['morning', 'baseline'],
       pose: 'front',
       notes: 'Starting my fitness journey!',
-      mood: 'motivated'
+      mood: 'motivated',
+      isFavorite: true
+
     },
     {
       id: '2',
@@ -89,7 +311,8 @@ export default function ProgressPhotoScreen() {
       tags: ['progress', 'week4'],
       pose: 'front',
       notes: 'Feeling stronger every day!',
-      mood: 'confident'
+      isFavorite: true,
+      mood: 'confident',
     },
     {
       id: '3',
@@ -102,7 +325,8 @@ export default function ProgressPhotoScreen() {
       tags: ['newyear', 'goals'],
       pose: 'side',
       notes: 'New year, new me!',
-      mood: 'determined'
+      isFavorite: false,
+      mood: 'determined',
     }
   ]);
 
@@ -197,22 +421,49 @@ export default function ProgressPhotoScreen() {
   const handleSavePhoto = () => {
     if (!tempImageUri) return;
 
-    const newPhotoData: ProgressPhoto = {
-      id: Date.now().toString(),
-      imageUri: tempImageUri,
-      weight: newPhoto.weight,
-      bodyFat: newPhoto.bodyFat,
-      musclePercentage: newPhoto.musclePercentage,
-      measurements: newPhoto.measurements,
-      date: newPhoto.date || new Date().toISOString().split('T')[0],
-      time: newPhoto.time || new Date().toTimeString().slice(0, 5),
-      tags: newPhoto.tags || [],
-      pose: newPhoto.pose || 'front',
-      notes: newPhoto.notes,
-      mood: newPhoto.mood || 'motivated'
-    };
+    const isEditing = currentPhotoId !== '';
+    
+    if (isEditing) {
+      // Update existing photo
+      setPhotos(prevPhotos => 
+        prevPhotos.map(photo => 
+          photo.id === currentPhotoId 
+            ? {
+                ...photo,
+                weight: newPhoto.weight,
+                bodyFat: newPhoto.bodyFat,
+                musclePercentage: newPhoto.musclePercentage,
+                measurements: newPhoto.measurements,
+                date: newPhoto.date || photo.date,
+                time: newPhoto.time || photo.time,
+                tags: newPhoto.tags || photo.tags,
+                pose: newPhoto.pose || photo.pose,
+                notes: newPhoto.notes,
+                mood: newPhoto.mood || photo.mood
+              }
+            : photo
+        )
+      );
+    } else {
+      // Add new photo
+      const newPhotoData: ProgressPhoto = {
+        id: Date.now().toString(),
+        imageUri: tempImageUri,
+        weight: newPhoto.weight,
+        bodyFat: newPhoto.bodyFat,
+        musclePercentage: newPhoto.musclePercentage,
+        measurements: newPhoto.measurements,
+        date: newPhoto.date || new Date().toISOString().split('T')[0],
+        time: newPhoto.time || new Date().toTimeString().slice(0, 5),
+        tags: newPhoto.tags || [],
+        pose: newPhoto.pose || 'front',
+        notes: newPhoto.notes,
+        mood: newPhoto.mood || 'motivated',
+        isFavorite: false
+      };
 
-    setPhotos(prev => [newPhotoData, ...prev]);
+      setPhotos(prev => [newPhotoData, ...prev]);
+    }
     
     // Reset form
     setNewPhoto({
@@ -227,6 +478,7 @@ export default function ProgressPhotoScreen() {
       mood: 'motivated'
     });
     setTempImageUri('');
+    setCurrentPhotoId('');
     setShowPhotoModal(false);
   };
 
@@ -448,10 +700,15 @@ export default function ProgressPhotoScreen() {
           <ArrowLeft size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.title}>Progress Photos</Text>
-        <TouchableOpacity onPress={handleAddPhoto} style={styles.addButton}>
+        {/* <TouchableOpacity onPress={handleAddPhoto} style={styles.addButton}>
+          <Plus size={20} color={colors.primary} />
+          <Text style={styles.addButtonText}>Add</Text>
+        </TouchableOpacity> */}
+        <TouchableOpacity onPress={showBottomSheet} style={styles.addButton}>
           <Plus size={20} color={colors.primary} />
           <Text style={styles.addButtonText}>Add</Text>
         </TouchableOpacity>
+       
       </View>
 
       {/* Search and Filters */}
@@ -554,7 +811,7 @@ export default function ProgressPhotoScreen() {
       </ScrollView>
 
       {/* Add Photo Modal */}
-      <Modal
+      {/* <Modal
         visible={showAddModal}
         animationType="slide"
         presentationStyle="pageSheet"
@@ -576,7 +833,41 @@ export default function ProgressPhotoScreen() {
             </TouchableOpacity>
           </View>
         </View>
-      </Modal>
+      </Modal> */}
+
+      {/* Bottom Sheet Component */}
+      <BottomSheet
+        visible={isBottomSheetVisible}
+        onClose={hideBottomSheet}
+        title="Add Photos"
+        colors={colors}
+        snapPoints={[0.3, 0.6, 0.9]} // 30%, 60%, 90% of screen height
+        initialSnap={0} // Start at first snap point (30%)
+        showHandle={true}
+        showHeader={true}
+        enablePanGesture={true}
+        closeOnBackdropPress={true}
+      >
+        {/* Content inside the bottom sheet */}
+        <ScrollView showsVerticalScrollIndicator={false}>
+           <View  >
+          {/* <View style={styles.modalHandle} /> */}
+          <Text style={styles.modalTitle}>Add Progress Photo</Text>
+          <Text style={styles.modalSubtitle}>Document your fitness journey</Text>
+          
+          <View style={styles.modalButtons}>
+            <TouchableOpacity style={styles.modalButton} onPress={handleTakePhoto}>
+              <Camera size={24} color={colors.primary} />
+              <Text style={styles.modalButtonText}>Take Photo</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.modalButton} onPress={handleOpenAlbum}>
+              <ImageIcon size={24} color={colors.primary} />
+              <Text style={styles.modalButtonText}>Choose from Gallery</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        </ScrollView>
+      </BottomSheet>
 
       {/* Camera Modal */}
       <Modal
@@ -632,7 +923,10 @@ export default function ProgressPhotoScreen() {
             <TouchableOpacity onPress={() => setShowPhotoModal(false)}>
               <ArrowLeft size={24} color={colors.text} />
             </TouchableOpacity>
-            <Text style={styles.photoModalTitle}>Add Details</Text>
+            <Text style={styles.photoModalTitle}>
+              {currentPhotoId ? 'Edit Photo' : 'Add Photo Details'}
+
+            </Text>
             <TouchableOpacity onPress={handleSavePhoto} style={styles.saveHeaderButton}>
               <Text style={styles.saveHeaderButtonText}>Save</Text>
             </TouchableOpacity>
@@ -798,8 +1092,9 @@ export default function ProgressPhotoScreen() {
                 <ArrowLeft size={24} color={colors.text} />
               </TouchableOpacity>
               <Text style={styles.detailTitle}>Progress Photo</Text>
-              <TouchableOpacity>
-                <Share size={24} color={colors.text} />
+               <TouchableOpacity onPress={() => showBottomMenu(selectedPhoto.id)} style={styles.addButton}>
+                <Ellipsis
+                 size={24} color={colors.text} />
               </TouchableOpacity>
             </View>
 
@@ -895,7 +1190,7 @@ export default function ProgressPhotoScreen() {
               </TouchableOpacity>
               <Text style={styles.comparisonModalTitle}>Progress Comparison</Text>
               <TouchableOpacity>
-                <Share size={24} color={colors.text} />
+                <ShareIcon size={24} color={colors.text} />
               </TouchableOpacity>
             </View>
 
@@ -1001,6 +1296,66 @@ export default function ProgressPhotoScreen() {
           </SafeAreaView>
         )}
       </Modal>
+
+            {/* Bottom Menu for Photo Actions */}
+      
+<BottomSheet
+  visible={isBottomMenuVisible}
+  onClose={hideBottomMenu}
+  title="Photo Actions"
+  colors={colors}
+  snapPoints={[0.5, 0.8]} // 50%, 80% of screen height
+  initialSnap={0} // Start at first snap point (50%)
+  showHandle={true}
+  showHeader={true}
+  enablePanGesture={true}
+  closeOnBackdropPress={true}
+>
+  {/* Content inside the bottom sheet */}
+  <ScrollView showsVerticalScrollIndicator={false}>
+    <View>
+      <Text style={styles.modalTitle}>Photo Options</Text>
+      <Text style={styles.modalSubtitle}>Choose an action for this photo</Text>
+      
+      <View style={styles.modalButtons}>
+        <TouchableOpacity style={styles.modalButton} onPress={handleSharePhoto}>
+          <ShareIcon size={24} color={colors.primary} />
+          <Text style={styles.modalButtonText}>Share Photo</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={styles.modalButton} onPress={handleEditPhoto}>
+          <Edit size={24} color={colors.primary} />
+          <Text style={styles.modalButtonText}>Edit Photo</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={styles.modalButton} onPress={handleDownloadPhoto}>
+          <Download size={24} color={colors.primary} />
+          <Text style={styles.modalButtonText}>Download</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={styles.modalButton} onPress={handleSetAsFavorite}>
+          <Heart size={24} color={colors.primary} />
+          <Text style={styles.modalButtonText}>Add to Favorites</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={styles.modalButton} onPress={handleCopyPhoto}>
+          <Copy size={24} color={colors.primary} />
+          <Text style={styles.modalButtonText}>Copy Photo</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={styles.modalButton} onPress={handleViewDetails}>
+          <Info size={24} color={colors.primary} />
+          <Text style={styles.modalButtonText}>View Details</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={[styles.modalButton, styles.deleteButton]} onPress={handleDeletePhoto}>
+          <Trash2 size={24} color={colors.error || '#ff4444'} />
+          <Text style={[styles.modalButtonText, styles.deleteButtonText]}>Delete Photo</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  </ScrollView>
+</BottomSheet>
     </SafeAreaView>
   );
 }
@@ -1112,7 +1467,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   gridContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingHorizontal: 16,
+    paddingHorizontal: 6,
   },
   gridItem: {
     width: (width - 48) / 3,
@@ -1226,7 +1581,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginLeft: 8,
   },
   comparisonContainer: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 6,
   },
   comparisonInstructions: {
     fontFamily: 'Inter-Regular',
@@ -1782,4 +2137,16 @@ const createStyles = (colors: any) => StyleSheet.create({
     flex: 1,
     textAlign: 'center',
   },
+  // Delete button styles
+deleteButton: {
+  backgroundColor: '#ffebee', // Light red background
+  borderColor: '#ffcdd2',
+  borderWidth: 1,
+  marginTop: 10, // Extra spacing from other buttons
+},
+
+deleteButtonText: {
+  color: '#d32f2f', // Red text color
+  fontWeight: '600',
+}
 });

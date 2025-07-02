@@ -302,6 +302,9 @@ const createStyles = (colors: any) => StyleSheet.create({
   featuredSection: {
     paddingHorizontal: 20,
     marginBottom: 24,
+     maxHeight: 220,
+   paddingBottom: 12,
+
   },
   sectionTitle: {
     fontFamily: 'Inter-SemiBold',
@@ -312,10 +315,11 @@ const createStyles = (colors: any) => StyleSheet.create({
   featuredCard: {
     borderRadius: 16,
     overflow: 'hidden',
+    minHeight: 80, // reduced from 120
   },
   featuredGradient: {
-    padding: 24,
-    minHeight: 160,
+    padding: 16, // reduced from 24
+    minHeight: 80, // reduced from 120
   },
   featuredContent: {
     flexDirection: 'row',
@@ -335,15 +339,15 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   featuredTitle: {
     fontFamily: 'Inter-Bold',
-    fontSize: 24,
+    fontSize: 20,
     color: '#FFFFFF',
     marginBottom: 4,
   },
   featuredInstructor: {
     fontFamily: 'Inter-Medium',
-    fontSize: 14,
+    fontSize: 13,
     color: 'rgba(255, 255, 255, 0.8)',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   featuredMeta: {
     flexDirection: 'row',
@@ -360,8 +364,8 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginLeft: 4,
   },
   featuredPlayButton: {
-    width: 64,
-    height: 64,
+    width: 48,
+    height: 48,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderRadius: 32,
     justifyContent: 'center',
@@ -369,7 +373,9 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginTop: 8,
   },
   categoriesContainer: {
+    marginTop: 16,
     marginBottom: 24,
+    maxHeight: 60, // limit height to fit in header
   },
   categoriesContent: {
     paddingHorizontal: 20,

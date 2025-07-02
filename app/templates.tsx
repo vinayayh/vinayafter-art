@@ -312,6 +312,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   categoriesContainer: {
     marginBottom: 16,
+    maxHeight: 40,
   },
   categoriesContent: {
     paddingHorizontal: 20,

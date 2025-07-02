@@ -12,6 +12,8 @@ import {
 import { SplashScreen } from 'expo-router';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { UserProvider } from '@/contexts/UserContext';
+
+import { UserStatsProvider } from '@/contexts/UserStatsContext';
 import { useColorScheme, getColors } from '@/hooks/useColorScheme';
 
 SplashScreen.preventAutoHideAsync();
@@ -43,6 +45,8 @@ const colorScheme = useColorScheme() ?? 'light';
   return (
     <AuthProvider>
       <UserProvider>
+           <UserStatsProvider>
+
         <Stack
           screenOptions={{
             headerShown: false,
@@ -59,7 +63,10 @@ const colorScheme = useColorScheme() ?? 'light';
           <Stack.Screen name="+not-found" />
         </Stack>
         <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} backgroundColor={colors.background} />
+           </UserStatsProvider>
+      
       </UserProvider>
+
     </AuthProvider>
   );
 }

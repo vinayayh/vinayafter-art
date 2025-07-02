@@ -161,117 +161,120 @@ export default function ActivitiesScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} backgroundColor={colors.background} />
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <ArrowLeft size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.title}>Activities</Text>
-        <TouchableOpacity onPress={handleCreateNew} style={styles.createButton}>
-          <Plus size={20} color={colors.primary} />
-          <Text style={styles.createButtonText}>Create new</Text>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView style={[styles.content, { backgroundColor: colors.background }]} showsVerticalScrollIndicator={false}>
-        {/* Search Bar */}
-        <View style={styles.searchContainer}>
-          <Search size={20} color={colors.textTertiary} style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search activities.."
-            placeholderTextColor={colors.textTertiary}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}> {/* Explicit background */}
+      {/* Fallback View to ensure background covers all */}
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} backgroundColor={colors.background} />
+        {/* Header */}
+        <View style={[styles.header, { backgroundColor: colors.background }]}> {/* Explicit background */}
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <ArrowLeft size={24} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.title}>Activities</Text>
+          <TouchableOpacity onPress={handleCreateNew} style={styles.createButton}>
+            <Plus size={20} color={colors.primary} />
+            <Text style={styles.createButtonText}>Create new</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Category Filters */}
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          style={styles.categoriesContainer}
-          contentContainerStyle={styles.categoriesContent}
-        >
-          {categories.map((category) => (
-            <TouchableOpacity
-              key={category.id}
-              style={[
-                styles.categoryChip,
-                selectedCategory === category.id && styles.activeCategoryChip
-              ]}
-              onPress={() => setSelectedCategory(category.id)}
-            >
-              <Text style={[
-                styles.categoryText,
-                selectedCategory === category.id && styles.activeCategoryText
-              ]}>
-                {category.name}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        {/* Most Recent Section */}
-        {searchQuery === '' && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>MOST RECENT</Text>
-            {recentActivities.map((activity) => {
-              const IconComponent = activity.icon;
-              return (
-                <TouchableOpacity
-                  key={activity.id}
-                  style={styles.activityItem}
-                  onPress={() => handleActivitySelect(activity)}
-                >
-                  <View style={[styles.activityIcon, { backgroundColor: `${activity.color}15` }]}>
-                    <IconComponent size={20} color={activity.color} />
-                  </View>
-                  <Text style={styles.activityName}>{activity.name}</Text>
-                  <ChevronRight size={20} color={colors.textTertiary} />
-                </TouchableOpacity>
-              );
-            })}
+        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}> {/* Remove backgroundColor here */}
+          {/* Search Bar */}
+          <View style={[styles.searchContainer, { backgroundColor: colors.surfaceSecondary }]}> {/* Explicit background */}
+            <Search size={20} color={colors.textTertiary} style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search activities.."
+              placeholderTextColor={colors.textTertiary}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
           </View>
-        )}
 
-        {/* Most Popular / Filtered Activities Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            {searchQuery ? 'SEARCH RESULTS' : 'MOST POPULAR'}
-          </Text>
-          {filteredActivities.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Activity size={48} color={colors.textTertiary} />
-              <Text style={styles.emptyTitle}>No activities found</Text>
-              <Text style={styles.emptyText}>
-                Try adjusting your search or category filter
-              </Text>
+          {/* Category Filters */}
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            style={[styles.categoriesContainer, { backgroundColor: colors.background }]}
+            contentContainerStyle={styles.categoriesContent}
+          >
+            {categories.map((category) => (
+              <TouchableOpacity
+                key={category.id}
+                style={[
+                  styles.categoryChip,
+                  selectedCategory === category.id && styles.activeCategoryChip
+                ]}
+                onPress={() => setSelectedCategory(category.id)}
+              >
+                <Text style={[
+                  styles.categoryText,
+                  selectedCategory === category.id && styles.activeCategoryText
+                ]}>
+                  {category.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          {/* Most Recent Section */}
+          {searchQuery === '' && (
+            <View style={[styles.section, { backgroundColor: colors.background }]}> {/* Explicit background */}
+              <Text style={styles.sectionTitle}>MOST RECENT</Text>
+              {recentActivities.map((activity) => {
+                const IconComponent = activity.icon;
+                return (
+                  <TouchableOpacity
+                    key={activity.id}
+                    style={styles.activityItem}
+                    onPress={() => handleActivitySelect(activity)}
+                  >
+                    <View style={[styles.activityIcon, { backgroundColor: `${activity.color}15` }]}> 
+                      <IconComponent size={20} color={activity.color} />
+                    </View>
+                    <Text style={styles.activityName}>{activity.name}</Text>
+                    <ChevronRight size={20} color={colors.textTertiary} />
+                  </TouchableOpacity>
+                );
+              })}
             </View>
-          ) : (
-            filteredActivities.map((activity) => {
-              const IconComponent = activity.icon;
-              return (
-                <TouchableOpacity
-                  key={activity.id}
-                  style={styles.activityItem}
-                  onPress={() => handleActivitySelect(activity)}
-                >
-                  <View style={[styles.activityIcon, { backgroundColor: `${activity.color}15` }]}>
-                    <IconComponent size={20} color={activity.color} />
-                  </View>
-                  <Text style={styles.activityName}>{activity.name}</Text>
-                  <ChevronRight size={20} color={colors.textTertiary} />
-                </TouchableOpacity>
-              );
-            })
           )}
-        </View>
 
-        <View style={{ height: 100 }} />
-      </ScrollView>
+          {/* Most Popular / Filtered Activities Section */}
+          <View style={[styles.section, { backgroundColor: colors.background }]}> {/* Explicit background */}
+            <Text style={styles.sectionTitle}>
+              {searchQuery ? 'SEARCH RESULTS' : 'MOST POPULAR'}
+            </Text>
+            {filteredActivities.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Activity size={48} color={colors.textTertiary} />
+                <Text style={styles.emptyTitle}>No activities found</Text>
+                <Text style={styles.emptyText}>
+                  Try adjusting your search or category filter
+                </Text>
+              </View>
+            ) : (
+              filteredActivities.map((activity) => {
+                const IconComponent = activity.icon;
+                return (
+                  <TouchableOpacity
+                    key={activity.id}
+                    style={styles.activityItem}
+                    onPress={() => handleActivitySelect(activity)}
+                  >
+                    <View style={[styles.activityIcon, { backgroundColor: `${activity.color}15` }]}> 
+                      <IconComponent size={20} color={activity.color} />
+                    </View>
+                    <Text style={styles.activityName}>{activity.name}</Text>
+                    <ChevronRight size={20} color={colors.textTertiary} />
+                  </TouchableOpacity>
+                );
+              })
+            )}
+          </View>
+
+          <View style={{ height: 100, backgroundColor: colors.background }} />
+        </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }

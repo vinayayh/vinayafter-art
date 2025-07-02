@@ -16,7 +16,8 @@ import { useAuth } from '@/contexts/AuthContext';
 const { width, height } = Dimensions.get('window');
 
 export default function SplashScreen() {
-  const colorScheme = useColorScheme();
+  const colorScheme = useColorScheme() ?? 'light';
+  
   const colors = getColors(colorScheme);
   const styles = createStyles(colors);
   const { user, loading } = useAuth();

@@ -24,7 +24,8 @@ import { useColorScheme, getColors } from '../../hooks/useColorScheme';
 import { router } from 'expo-router';
 
 export default function TodayHRView() {
-  const colorScheme = useColorScheme();
+  const colorScheme = useColorScheme() ?? 'light';
+  
   const colors = getColors(colorScheme);
   const styles = createStyles(colors);
 
@@ -65,7 +66,7 @@ export default function TodayHRView() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView style={[styles.scrollView, { backgroundColor: colors.background }]} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.dateText}>{getCurrentDate()}</Text>

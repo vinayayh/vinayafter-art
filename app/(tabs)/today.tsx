@@ -3,11 +3,11 @@ import { View, Text, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColorScheme, getColors } from '@/hooks/useColorScheme';
 import { useUserRole } from '@/contexts/UserContext';
-import { useTodayData } from '@/hooks/useTodayData';
+import { useTodayDataNew } from '@/hooks/useTodayDataNew';
 
-// Import the data-driven components
-import TodayClientViewWithData from '@/components/today/TodayClientViewWithData';
-import TodayTrainerViewWithData from '@/components/today/TodayTrainerViewWithData';
+// Import the new data-driven components
+import TodayClientViewNew from '@/components/today/TodayClientViewNew';
+import TodayTrainerViewNew from '@/components/today/TodayTrainerViewNew';
 import TodayNutritionistViewWithData from '@/components/today/TodayNutritionistViewWithData';
 import TodayAdminViewWithData from '@/components/today/TodayAdminViewWithData';
 
@@ -15,7 +15,7 @@ export default function TodayScreen() {
   const colorScheme = useColorScheme();
   const colors = getColors(colorScheme);
   const { userRole } = useUserRole();
-  const { loading, error } = useTodayData();
+  const { loading, error } = useTodayDataNew();
 
   if (error) {
     return (
@@ -35,9 +35,9 @@ export default function TodayScreen() {
   // Render appropriate view based on user role
   switch (userRole) {
     case 'client':
-      return <TodayClientViewWithData />;
+      return <TodayClientViewNew />;
     case 'trainer':
-      return <TodayTrainerViewWithData />;
+      return <TodayTrainerViewNew />;
     case 'nutritionist':
       return <TodayNutritionistViewWithData />;
     case 'admin':

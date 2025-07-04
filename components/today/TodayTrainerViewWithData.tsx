@@ -21,6 +21,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColorScheme, getColors } from '../../hooks/useColorScheme';
 import { useTodayData } from '../../hooks/useTodayData';
+import { router } from 'expo-router';
 
 export default function TodayTrainerViewWithData() {
   const colorScheme = useColorScheme() ?? 'light';
@@ -43,6 +44,23 @@ export default function TodayTrainerViewWithData() {
   const activeClients = clients.length;
 
   const upcomingSessions = trainingSessions.filter(s => s.status === 'scheduled');
+
+  // Navigation handlers
+  const handleViewAllSessions = () => {
+    router.push('/trainer/sessions');
+  };
+
+  const handleNewSession = () => {
+    router.push('/trainer/new-session');
+  };
+
+  const handleViewClients = () => {
+    router.push('/trainer/clients');
+  };
+
+  const handleMessages = () => {
+    router.push('/trainer/messages');
+  };
 
   if (loading) {
     return (
@@ -138,7 +156,7 @@ export default function TodayTrainerViewWithData() {
             ))
           )}
           
-          <TouchableOpacity style={styles.viewAllButton}>
+          <TouchableOpacity style={styles.viewAllButton} onPress={handleViewAllSessions}>
             <Text style={styles.viewAllText}>View All Sessions</Text>
           </TouchableOpacity>
         </View>
@@ -174,7 +192,7 @@ export default function TodayTrainerViewWithData() {
           )}
           
           {clients.length > 3 && (
-            <TouchableOpacity style={styles.viewAllButton}>
+            <TouchableOpacity style={styles.viewAllButton} onPress={handleViewClients}>
               <Text style={styles.viewAllText}>View All Clients ({clients.length})</Text>
             </TouchableOpacity>
           )}
@@ -185,17 +203,17 @@ export default function TodayTrainerViewWithData() {
           <Text style={styles.cardTitle}>Quick Actions</Text>
           
           <View style={styles.actionGrid}>
-            <TouchableOpacity style={styles.actionButton}>
+            <TouchableOpacity style={styles.actionButton} onPress={handleNewSession}>
               <Plus size={20} color={colors.primary} />
               <Text style={styles.actionText}>New Session</Text>
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.actionButton}>
+            <TouchableOpacity style={styles.actionButton} onPress={handleViewClients}>
               <Users size={20} color={colors.success} />
               <Text style={styles.actionText}>View Clients</Text>
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.actionButton}>
+            <TouchableOpacity style={styles.actionButton} onPress={handleMessages}>
               <MessageSquare size={20} color={colors.warning} />
               <Text style={styles.actionText}>Messages</Text>
             </TouchableOpacity>

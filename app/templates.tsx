@@ -7,16 +7,17 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Plus, Search, Filter, Clock, Dumbbell, CreditCard as Edit, Trash2, Copy } from 'lucide-react-native';
+import { ArrowLeft, Plus, Search, Filter, Clock, Dumbbell, Edit, Trash2, Copy, X } from 'lucide-react-native';
 import { useColorScheme, getColors } from '@/hooks/useColorScheme';
 import { router } from 'expo-router';
 import { WorkoutTemplate } from '@/types/workout';
 import { getTemplates, deleteTemplate } from '@/utils/storage';
 import { formatDuration } from '@/utils/workoutUtils';
 
-const categories = ['All', 'Strength', 'Cardio', 'Bodyweight', 'HIIT', 'Flexibility'];
+const categories = ['All', 'Strength', 'Cardio', 'Bodyweight', 'HIIT', 'Flexibility', 'Athletic Performance', 'Rehabilitation'];
 
 export default function TemplatesScreen() {
   const colorScheme = useColorScheme();
@@ -28,6 +29,9 @@ export default function TemplatesScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [loading, setLoading] = useState(true);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [newCategory, setNewCategory] = useState('');
+  const [customCategories, setCustomCategories] = useState<string[]>([]);
 
   useEffect(() => {
     loadTemplates();
@@ -95,6 +99,24 @@ export default function TemplatesScreen() {
   const handleDuplicateTemplate = (template: WorkoutTemplate) => {
     router.push(`/create-template?duplicate=${template.id}`);
   };
+
+  const handleCreateTemplate = () => {
+    router.push('/create-template');
+  };
+
+  const handleCreateExercise = () => {
+    router.push('/create-exercise');
+  };
+
+  const handleAddCategory = () => {
+    if (newCategory.trim() && !categories.includes(newCategory.trim())) {
+      setCustomCategories(prev => [...prev, newCategory.trim()]);
+      setNewCategory('');
+      setShowCategoryModal(false);
+    }
+  };
+
+  const allCategories = [...categories, ...customCategories];
 
   const renderTemplateCard = (template: WorkoutTemplate) => (
     <TouchableOpacity
@@ -175,13 +197,22 @@ export default function TemplatesScreen() {
           <ArrowLeft size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.title}>Workout Templates</Text>
-        <TouchableOpacity
-          onPress={() => router.push('/create-template')}
-          style={styles.createButton}
-        >
-          <Plus size={20} color={colors.primary} />
-          <Text style={styles.createButtonText}>Create</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            onPress={handleCreateExercise}
+            style={styles.createExerciseButton}
+          >
+            <Plus size={16} color={colors.success} />
+            <Text style={styles.createExerciseText}>Exercise</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={handleCreateTemplate}
+            style={styles.createButton}
+          >
+            <Plus size={20} color={colors.primary} />
+            <Text style={styles.createButtonText}>Template</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Search Bar */}
@@ -197,30 +228,39 @@ export default function TemplatesScreen() {
       </View>
 
       {/* Category Filters */}
-      <ScrollView 
-        horizontal 
-        showsHorizontalScrollIndicator={false}
-        style={styles.categoriesContainer}
-        contentContainerStyle={styles.categoriesContent}
-      >
-        {categories.map((category) => (
+      <View style={styles.categoriesSection}>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          style={styles.categoriesContainer}
+          contentContainerStyle={styles.categoriesContent}
+        >
+          {allCategories.map((category) => (
+            <TouchableOpacity
+              key={category}
+              style={[
+                styles.categoryChip,
+                selectedCategory === category && styles.activeCategoryChip
+              ]}
+              onPress={() => setSelectedCategory(category)}
+            >
+              <Text style={[
+                styles.categoryChipText,
+                selectedCategory === category && styles.activeCategoryChipText
+              ]}>
+                {category}
+              </Text>
+            </TouchableOpacity>
+          ))}
           <TouchableOpacity
-            key={category}
-            style={[
-              styles.categoryChip,
-              selectedCategory === category && styles.activeCategoryChip
-            ]}
-            onPress={() => setSelectedCategory(category)}
+            style={styles.addCategoryButton}
+            onPress={() => setShowCategoryModal(true)}
           >
-            <Text style={[
-              styles.categoryChipText,
-              selectedCategory === category && styles.activeCategoryChipText
-            ]}>
-              {category}
-            </Text>
+            <Plus size={16} color={colors.primary} />
+            <Text style={styles.addCategoryText}>Add Category</Text>
           </TouchableOpacity>
-        ))}
-      </ScrollView>
+        </ScrollView>
+      </View>
 
       {/* Templates List */}
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -236,7 +276,7 @@ export default function TemplatesScreen() {
             {!searchQuery && selectedCategory === 'All' && (
               <TouchableOpacity
                 style={styles.createFirstButton}
-                onPress={() => router.push('/create-template')}
+                onPress={handleCreateTemplate}
               >
                 <Text style={styles.createFirstButtonText}>Create Template</Text>
               </TouchableOpacity>
@@ -248,6 +288,46 @@ export default function TemplatesScreen() {
 
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      {/* Add Category Modal */}
+      <Modal
+        visible={showCategoryModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowCategoryModal(false)}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Add New Category</Text>
+            <TouchableOpacity onPress={() => setShowCategoryModal(false)}>
+              <X size={24} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.modalContent}>
+            <Text style={styles.modalLabel}>Category Name</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={newCategory}
+              onChangeText={setNewCategory}
+              placeholder="Enter category name"
+              placeholderTextColor={colors.textTertiary}
+              autoFocus
+            />
+            
+            <TouchableOpacity
+              style={[
+                styles.modalButton,
+                !newCategory.trim() && styles.modalButtonDisabled
+              ]}
+              onPress={handleAddCategory}
+              disabled={!newCategory.trim()}
+            >
+              <Text style={styles.modalButtonText}>Add Category</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -275,6 +355,24 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: colors.text,
     flex: 1,
     textAlign: 'center',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  createExerciseButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  createExerciseText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 12,
+    color: colors.success,
+    marginLeft: 4,
   },
   createButton: {
     flexDirection: 'row',
@@ -310,8 +408,10 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 16,
     color: colors.text,
   },
-  categoriesContainer: {
+  categoriesSection: {
     marginBottom: 16,
+  },
+  categoriesContainer: {
     maxHeight: 40,
   },
   categoriesContent: {
@@ -337,6 +437,23 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   activeCategoryChipText: {
     color: '#FFFFFF',
+  },
+  addCategoryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderStyle: 'dashed',
+  },
+  addCategoryText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 14,
+    color: colors.primary,
+    marginLeft: 4,
   },
   content: {
     flex: 1,
@@ -461,5 +578,58 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontFamily: 'Inter-Regular',
     fontSize: 16,
     color: colors.textSecondary,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  modalTitle: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 20,
+    color: colors.text,
+  },
+  modalContent: {
+    padding: 20,
+  },
+  modalLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 16,
+    color: colors.text,
+    marginBottom: 8,
+  },
+  modalInput: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontFamily: 'Inter-Regular',
+    fontSize: 16,
+    color: colors.text,
+    marginBottom: 24,
+  },
+  modalButton: {
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  modalButtonDisabled: {
+    opacity: 0.5,
+  },
+  modalButtonText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 16,
+    color: '#FFFFFF',
   },
 });

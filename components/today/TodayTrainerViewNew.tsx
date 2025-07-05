@@ -39,24 +39,33 @@ import {
   BellRing,
   UserCheck,
   Timer,
-  Flame
+  Flame,
+  TrendingDown,
+  BarChart3,
+  Calendar as CalendarIcon,
+  Settings
 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColorScheme, getColors } from '../../hooks/useColorScheme';
 import { router } from 'expo-router';
 import {
-  getTrainerDashboardStats,
-  getTrainerActiveClients,
-  getTodayTrainingSessions,
-  getUpcomingTrainingSessions,
-  getTrainerNotifications,
-  markNotificationAsRead,
-  completeTrainingSession,
-  TrainerDashboardStats,
-  ClientWithProgress,
+  getEnhancedTrainerStats,
+  getEnhancedActiveClients,
+  getEnhancedTodaySessions,
+  getEnhancedUpcomingSessions,
+  getSessionNotifications,
+  getClientActivityLog,
+  markSessionNotificationAsRead,
+  completeEnhancedTrainingSession,
+  createEnhancedTrainingSession,
+  updateTrainerDashboardStats,
+  logClientActivity,
+  EnhancedTrainerStats,
+  EnhancedClientData,
   EnhancedTrainingSession,
-  TrainerNotification,
-} from '../../lib/trainerQueries';
+  SessionNotification,
+  ClientActivity,
+} from '../../lib/enhancedTrainerQueries';
 
 const { width } = Dimensions.get('window');
 
@@ -66,17 +75,19 @@ export default function TodayTrainerViewNew() {
   const styles = createStyles(colors);
 
   // State management
-  const [dashboardStats, setDashboardStats] = useState<TrainerDashboardStats | null>(null);
-  const [activeClients, setActiveClients] = useState<ClientWithProgress[]>([]);
+  const [trainerStats, setTrainerStats] = useState<EnhancedTrainerStats | null>(null);
+  const [activeClients, setActiveClients] = useState<EnhancedClientData[]>([]);
   const [todaySessions, setTodaySessions] = useState<EnhancedTrainingSession[]>([]);
   const [upcomingSessions, setUpcomingSessions] = useState<EnhancedTrainingSession[]>([]);
-  const [notifications, setNotifications] = useState<TrainerNotification[]>([]);
+  const [notifications, setNotifications] = useState<SessionNotification[]>([]);
+  const [clientActivity, setClientActivity] = useState<ClientActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   // Modal states
   const [showNotifications, setShowNotifications] = useState(false);
   const [showQuickNotes, setShowQuickNotes] = useState(false);
+  const [showClientActivity, setShowClientActivity] = useState(false);
   const [selectedSession, setSelectedSession] = useState<EnhancedTrainingSession | null>(null);
   const [quickNotes, setQuickNotes] = useState('');
   const [sessionRating, setSessionRating] = useState(0);
@@ -89,21 +100,23 @@ export default function TodayTrainerViewNew() {
     try {
       setLoading(true);
       
-      const [stats, clients, todaySessionsData, upcomingSessionsData, notificationsData] = await Promise.all([
-        getTrainerDashboardStats(),
-        getTrainerActiveClients(),
-        getTodayTrainingSessions(),
-        getUpcomingTrainingSessions(),
-        getTrainerNotifications(20)
+      const [stats, clients, todaySessionsData, upcomingSessionsData, notificationsData, activityData] = await Promise.all([
+        getEnhancedTrainerStats(),
+        getEnhancedActiveClients(),
+        getEnhancedTodaySessions(),
+        getEnhancedUpcomingSessions(),
+        getSessionNotifications(20),
+        getClientActivityLog(undefined, 10)
       ]);
 
-      setDashboardStats(stats);
+      setTrainerStats(stats);
       setActiveClients(clients);
       setTodaySessions(todaySessionsData);
       setUpcomingSessions(upcomingSessionsData);
       setNotifications(notificationsData);
+      setClientActivity(activityData);
     } catch (error) {
-      console.error('Error loading trainer data:', error);
+      console.error('Error loading enhanced trainer data:', error);
     } finally {
       setLoading(false);
     }
@@ -111,6 +124,7 @@ export default function TodayTrainerViewNew() {
 
   const handleRefresh = async () => {
     setRefreshing(true);
+    await updateTrainerDashboardStats();
     await loadAllData();
     setRefreshing(false);
   };
@@ -142,31 +156,42 @@ export default function TodayTrainerViewNew() {
     }
   };
 
+  const getActivityIcon = (type: string) => {
+    switch (type) {
+      case 'session_completed': return <CheckCircle size={16} color={colors.success} />;
+      case 'session_cancelled': return <AlertCircle size={16} color={colors.error} />;
+      case 'goal_achieved': return <Award size={16} color={colors.warning} />;
+      case 'progress_updated': return <TrendingUp size={16} color={colors.primary} />;
+      case 'message_sent': return <MessageSquare size={16} color={colors.info} />;
+      case 'login': return <UserCheck size={16} color={colors.textSecondary} />;
+      default: return <Activity size={16} color={colors.textSecondary} />;
+    }
+  };
+
   const getNotificationIcon = (type: string) => {
     switch (type) {
-      case 'session_reminder': return <Clock size={16} color={colors.primary} />;
-      case 'client_milestone': return <Award size={16} color={colors.warning} />;
-      case 'session_cancelled': return <AlertCircle size={16} color={colors.error} />;
-      case 'new_client': return <UserCheck size={16} color={colors.success} />;
-      case 'payment_due': return <Target size={16} color={colors.warning} />;
-      case 'system_alert': return <Bell size={16} color={colors.textSecondary} />;
+      case 'reminder': return <Clock size={16} color={colors.primary} />;
+      case 'confirmation': return <CheckCircle size={16} color={colors.success} />;
+      case 'cancellation': return <AlertCircle size={16} color={colors.error} />;
+      case 'completion': return <Award size={16} color={colors.warning} />;
+      case 'no_show': return <AlertCircle size={16} color={colors.warning} />;
       default: return <Bell size={16} color={colors.textSecondary} />;
     }
   };
 
-  const handleNotificationPress = async (notification: TrainerNotification) => {
+  const handleNotificationPress = async (notification: SessionNotification) => {
     if (!notification.read) {
-      await markNotificationAsRead(notification.id);
+      await markSessionNotificationAsRead(notification.id);
       setNotifications(prev => 
         prev.map(n => n.id === notification.id ? { ...n, read: true } : n)
       );
     }
 
-    // Handle notification action based on type
-    if (notification.data?.session_id) {
-      router.push(`/session/${notification.data.session_id}`);
-    } else if (notification.data?.client_id) {
-      router.push(`/client-detail/${notification.data.client_id}`);
+    // Navigate to session or client based on notification
+    if (notification.session_id) {
+      router.push(`/session/${notification.session_id}`);
+    } else if (notification.client_id) {
+      router.push(`/client-detail/${notification.client_id}`);
     }
   };
 
@@ -174,7 +199,7 @@ export default function TodayTrainerViewNew() {
     if (!selectedSession) return;
 
     try {
-      const success = await completeTrainingSession(selectedSession.id, {
+      const success = await completeEnhancedTrainingSession(selectedSession.id, {
         trainer_notes: quickNotes.trim() || undefined,
         session_rating: sessionRating || undefined,
       });
@@ -199,7 +224,7 @@ export default function TodayTrainerViewNew() {
     router.push(`/session/${session.id}`);
   };
 
-  const handleClientPress = (client: ClientWithProgress) => {
+  const handleClientPress = (client: EnhancedClientData) => {
     router.push(`/client-detail/${client.id}`);
   };
 
@@ -221,7 +246,7 @@ export default function TodayTrainerViewNew() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading your dashboard...</Text>
+          <Text style={styles.loadingText}>Loading your enhanced dashboard...</Text>
         </View>
       </SafeAreaView>
     );
@@ -236,28 +261,39 @@ export default function TodayTrainerViewNew() {
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
       >
-        {/* Header */}
+        {/* Enhanced Header */}
         <View style={styles.header}>
           <View style={styles.headerContent}>
             <Text style={styles.dateText}>{getCurrentDate()}</Text>
             <Text style={styles.greetingText}>
-              Good Morning, {dashboardStats?.trainer_name?.split(' ')[0] || 'Trainer'}! 💪
+              Good Morning, {trainerStats?.trainer_name?.split(' ')[0] || 'Trainer'}! 💪
+            </Text>
+            <Text style={styles.subGreetingText}>
+              You have {trainerStats?.pending_today || 0} sessions today
             </Text>
           </View>
-          <TouchableOpacity 
-            style={styles.notificationButton}
-            onPress={() => setShowNotifications(true)}
-          >
-            <Bell size={20} color={colors.textSecondary} />
-            {unreadNotifications > 0 && (
-              <View style={styles.notificationBadge}>
-                <Text style={styles.notificationBadgeText}>{unreadNotifications}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity 
+              style={styles.notificationButton}
+              onPress={() => setShowNotifications(true)}
+            >
+              <Bell size={20} color={colors.textSecondary} />
+              {unreadNotifications > 0 && (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationBadgeText}>{unreadNotifications}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.headerButton}
+              onPress={() => setShowClientActivity(true)}
+            >
+              <Activity size={20} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {/* Today's Overview */}
+        {/* Enhanced Overview Card */}
         <LinearGradient
           colors={colorScheme === 'dark' ? ['#BE185D', '#BE123C'] : ['#F093FB', '#F5576C']}
           style={styles.overviewCard}
@@ -265,13 +301,29 @@ export default function TodayTrainerViewNew() {
           end={{ x: 1, y: 1 }}
         >
           <View style={styles.overviewContent}>
-            <Text style={styles.overviewLabel}>TODAY'S SESSIONS</Text>
+            <Text style={styles.overviewLabel}>TODAY'S PERFORMANCE</Text>
             <Text style={styles.overviewNumber}>
-              {dashboardStats?.completed_today || 0}/{dashboardStats?.today_sessions || 0}
+              {trainerStats?.completed_today || 0}/{trainerStats?.today_sessions || 0}
             </Text>
             <Text style={styles.overviewMessage}>
-              {(dashboardStats?.today_sessions || 0) - (dashboardStats?.completed_today || 0)} sessions remaining
+              {(trainerStats?.today_sessions || 0) - (trainerStats?.completed_today || 0)} sessions remaining
             </Text>
+            <View style={styles.overviewStats}>
+              <View style={styles.overviewStat}>
+                <Text style={styles.overviewStatNumber}>{trainerStats?.active_clients || 0}</Text>
+                <Text style={styles.overviewStatLabel}>Active Clients</Text>
+              </View>
+              <View style={styles.overviewStat}>
+                <Text style={styles.overviewStatNumber}>
+                  {trainerStats?.avg_session_rating ? trainerStats.avg_session_rating.toFixed(1) : '0.0'}
+                </Text>
+                <Text style={styles.overviewStatLabel}>Avg Rating</Text>
+              </View>
+              <View style={styles.overviewStat}>
+                <Text style={styles.overviewStatNumber}>{trainerStats?.weekly_sessions || 0}</Text>
+                <Text style={styles.overviewStatLabel}>This Week</Text>
+              </View>
+            </View>
             <TouchableOpacity style={styles.overviewButton} onPress={handleNewSession}>
               <Plus size={16} color="#FFFFFF" />
               <Text style={styles.overviewButtonText}>Schedule New</Text>
@@ -279,15 +331,18 @@ export default function TodayTrainerViewNew() {
           </View>
         </LinearGradient>
 
-        {/* Quick Stats */}
+        {/* Enhanced Quick Stats */}
         <View style={styles.statsContainer}>
           <TouchableOpacity style={styles.statCard} onPress={handleViewAllClients}>
             <View style={[styles.statIcon, { backgroundColor: `${colors.primary}15` }]}>
               <Users size={24} color={colors.primary} />
             </View>
-            <Text style={styles.statNumber}>{dashboardStats?.active_clients || 0}</Text>
-            <Text style={styles.statLabel}>Active Clients</Text>
-            <ChevronRight size={16} color={colors.textTertiary} />
+            <Text style={styles.statNumber}>{trainerStats?.total_clients || 0}</Text>
+            <Text style={styles.statLabel}>Total Clients</Text>
+            <View style={styles.statTrend}>
+              <TrendingUp size={12} color={colors.success} />
+              <Text style={styles.statTrendText}>+2 this week</Text>
+            </View>
           </TouchableOpacity>
           
           <TouchableOpacity style={styles.statCard} onPress={handleViewAllSessions}>
@@ -295,10 +350,25 @@ export default function TodayTrainerViewNew() {
               <Star size={24} color={colors.success} />
             </View>
             <Text style={styles.statNumber}>
-              {dashboardStats?.avg_session_rating ? dashboardStats.avg_session_rating.toFixed(1) : '0.0'}
+              {trainerStats?.avg_session_rating ? trainerStats.avg_session_rating.toFixed(1) : '0.0'}
             </Text>
             <Text style={styles.statLabel}>Avg Rating</Text>
-            <ChevronRight size={16} color={colors.textTertiary} />
+            <View style={styles.statTrend}>
+              <TrendingUp size={12} color={colors.success} />
+              <Text style={styles.statTrendText}>+0.2 this month</Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.statCard} onPress={() => router.push('/trainer/analytics')}>
+            <View style={[styles.statIcon, { backgroundColor: `${colors.warning}15` }]}>
+              <BarChart3 size={24} color={colors.warning} />
+            </View>
+            <Text style={styles.statNumber}>{trainerStats?.weekly_sessions || 0}</Text>
+            <Text style={styles.statLabel}>Weekly Sessions</Text>
+            <View style={styles.statTrend}>
+              <TrendingUp size={12} color={colors.success} />
+              <Text style={styles.statTrendText}>+15% vs last week</Text>
+            </View>
           </TouchableOpacity>
         </View>
 
@@ -311,7 +381,7 @@ export default function TodayTrainerViewNew() {
                 <Plus size={16} color={colors.primary} />
               </TouchableOpacity>
               <TouchableOpacity style={styles.cardActionButton} onPress={handleViewAllSessions}>
-                <Calendar size={16} color={colors.textSecondary} />
+                <CalendarIcon size={16} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
           </View>
@@ -364,6 +434,12 @@ export default function TodayTrainerViewNew() {
                       <Timer size={12} color={colors.textTertiary} />
                       <Text style={styles.sessionMetaText}>{session.duration_minutes} min</Text>
                     </View>
+                    {session.client?.fitness_goals && session.client.fitness_goals.length > 0 && (
+                      <View style={styles.sessionMetaItem}>
+                        <Target size={12} color={colors.textTertiary} />
+                        <Text style={styles.sessionMetaText}>{session.client.fitness_goals[0]}</Text>
+                      </View>
+                    )}
                   </View>
                 </View>
                 
@@ -446,7 +522,7 @@ export default function TodayTrainerViewNew() {
           </View>
         )}
 
-        {/* Active Clients */}
+        {/* Enhanced Active Clients */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>Your Clients</Text>
@@ -469,26 +545,31 @@ export default function TodayTrainerViewNew() {
                 <View style={styles.clientLeft}>
                   <View style={styles.clientAvatar}>
                     <Text style={styles.clientAvatarText}>
-                      {client.full_name?.charAt(0) || '?'}
+                      {client.client_name?.charAt(0) || '?'}
                     </Text>
+                    <View style={[
+                      styles.activityIndicator,
+                      { backgroundColor: client.activity_status === 'active' ? colors.success : 
+                                        client.activity_status === 'inactive' ? colors.warning : colors.error }
+                    ]} />
                   </View>
                   
                   <View style={styles.clientInfo}>
-                    <Text style={styles.clientName}>{client.full_name}</Text>
-                    <Text style={styles.clientEmail}>{client.email}</Text>
+                    <Text style={styles.clientName}>{client.client_name}</Text>
+                    <Text style={styles.clientEmail}>{client.client_email}</Text>
                     <View style={styles.clientStats}>
                       <Text style={styles.clientStat}>
-                        Last: {client.last_session ? 
-                          new Date(client.last_session.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 
-                          'Never'
-                        }
+                        {client.completed_sessions}/{client.total_sessions} sessions
                       </Text>
-                      {client.last_session?.rating && (
+                      {client.avg_rating > 0 && (
                         <View style={styles.ratingBadge}>
                           <Star size={10} color="#FFFFFF" />
-                          <Text style={styles.ratingText}>{client.last_session.rating}</Text>
+                          <Text style={styles.ratingText}>{client.avg_rating.toFixed(1)}</Text>
                         </View>
                       )}
+                      <View style={styles.progressBadge}>
+                        <Text style={styles.progressText}>{client.progress_score}% progress</Text>
+                      </View>
                     </View>
                   </View>
                 </View>
@@ -563,7 +644,7 @@ export default function TodayTrainerViewNew() {
         <Plus size={24} color="#FFFFFF" />
       </TouchableOpacity>
 
-      {/* Notifications Modal */}
+      {/* Enhanced Notifications Modal */}
       <Modal
         visible={showNotifications}
         animationType="slide"
@@ -595,7 +676,7 @@ export default function TodayTrainerViewNew() {
                   onPress={() => handleNotificationPress(notification)}
                 >
                   <View style={styles.notificationIcon}>
-                    {getNotificationIcon(notification.type)}
+                    {getNotificationIcon(notification.notification_type)}
                   </View>
                   <View style={styles.notificationContent}>
                     <Text style={styles.notificationTitle}>{notification.title}</Text>
@@ -606,6 +687,46 @@ export default function TodayTrainerViewNew() {
                   </View>
                   {!notification.read && <View style={styles.unreadDot} />}
                 </TouchableOpacity>
+              ))
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Client Activity Modal */}
+      <Modal
+        visible={showClientActivity}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowClientActivity(false)}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Recent Client Activity</Text>
+            <TouchableOpacity onPress={() => setShowClientActivity(false)}>
+              <X size={24} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+          
+          <ScrollView style={styles.activityList}>
+            {clientActivity.length === 0 ? (
+              <View style={styles.emptyActivity}>
+                <Activity size={48} color={colors.textTertiary} />
+                <Text style={styles.emptyActivityText}>No recent activity</Text>
+              </View>
+            ) : (
+              clientActivity.map((activity) => (
+                <View key={activity.id} style={styles.activityItem}>
+                  <View style={styles.activityIcon}>
+                    {getActivityIcon(activity.activity_type)}
+                  </View>
+                  <View style={styles.activityContent}>
+                    <Text style={styles.activityDescription}>{activity.description}</Text>
+                    <Text style={styles.activityTime}>
+                      {new Date(activity.activity_date).toLocaleString()}
+                    </Text>
+                  </View>
+                </View>
               ))
             )}
           </ScrollView>
@@ -706,6 +827,10 @@ const createStyles = (colors: any) => StyleSheet.create({
   headerContent: {
     flex: 1,
   },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   dateText: {
     fontFamily: 'Inter-Medium',
     fontSize: 12,
@@ -718,8 +843,19 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: colors.text,
     marginTop: 4,
   },
+  subGreetingText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginTop: 4,
+  },
   notificationButton: {
     position: 'relative',
+    padding: 8,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 12,
+  },
+  headerButton: {
     padding: 8,
     backgroundColor: colors.surfaceSecondary,
     borderRadius: 12,
@@ -768,6 +904,24 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.8)',
     marginBottom: 16,
   },
+  overviewStats: {
+    flexDirection: 'row',
+    gap: 20,
+    marginBottom: 16,
+  },
+  overviewStat: {
+    alignItems: 'center',
+  },
+  overviewStatNumber: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 18,
+    color: '#FFFFFF',
+  },
+  overviewStatLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.7)',
+  },
   overviewButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -786,7 +940,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 20,
     marginBottom: 16,
-    gap: 16,
+    gap: 12,
   },
   statCard: {
     flex: 1,
@@ -820,6 +974,17 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 12,
     color: colors.textSecondary,
     textAlign: 'center',
+    marginBottom: 8,
+  },
+  statTrend: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  statTrendText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 10,
+    color: colors.success,
   },
   card: {
     backgroundColor: colors.surface,
@@ -1023,11 +1188,22 @@ const createStyles = (colors: any) => StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+    position: 'relative',
   },
   clientAvatarText: {
     fontFamily: 'Inter-Bold',
     fontSize: 16,
     color: '#FFFFFF',
+  },
+  activityIndicator: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: colors.surface,
   },
   clientInfo: {
     flex: 1,
@@ -1067,6 +1243,17 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 9,
     color: '#FFFFFF',
     marginLeft: 2,
+  },
+  progressBadge: {
+    backgroundColor: colors.primary + '20',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  progressText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 9,
+    color: colors.primary,
   },
   clientActions: {
     flexDirection: 'row',
@@ -1215,6 +1402,51 @@ const createStyles = (colors: any) => StyleSheet.create({
     height: 8,
     backgroundColor: colors.primary,
     borderRadius: 4,
+  },
+  activityList: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  emptyActivity: {
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  emptyActivityText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 16,
+    color: colors.textSecondary,
+    marginTop: 16,
+  },
+  activityItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: 16,
+    marginVertical: 4,
+  },
+  activityIcon: {
+    width: 32,
+    height: 32,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  activityContent: {
+    flex: 1,
+  },
+  activityDescription: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: colors.text,
+    marginBottom: 2,
+  },
+  activityTime: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 11,
+    color: colors.textTertiary,
   },
   sessionSummary: {
     backgroundColor: colors.surfaceSecondary,

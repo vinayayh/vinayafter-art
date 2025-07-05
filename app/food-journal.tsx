@@ -9,6 +9,9 @@ import {
   TextInput,
   Alert,
   Platform,
+  Image,
+  Dimensions,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { 
@@ -18,149 +21,560 @@ import {
   Clock,
   UtensilsCrossed,
   Calendar,
-  X
+  X,
+  ImageIcon,
+  Edit3,
+  Trash2,
+  Target,
+  Settings,
+  ChevronDown,
+  Save,
+  MoreHorizontal
 } from 'lucide-react-native';
 import { useColorScheme, getColors } from '@/hooks/useColorScheme';
 import { router } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import {
+  getMealTypes,
+  getNutritionGoals,
+  upsertNutritionGoals,
+  getFoodEntriesForDateRange,
+  createFoodEntry,
+  updateFoodEntry,
+  deleteFoodEntry,
+  addFoodPhoto,
+  MealType,
+  FoodEntry,
+  NutritionGoals,
+  DayNutritionSummary,
+} from '@/lib/foodJournal';
 
-interface FoodEntry {
-  id: string;
-  description: string;
-  time: string;
-  date: string;
-  photo?: string;
-}
-
-interface DayEntry {
-  date: string;
-  displayDate: string;
-  entries: FoodEntry[];
-}
+const { width } = Dimensions.get('window');
 
 export default function FoodJournalScreen() {
   const colorScheme = useColorScheme();
   const colors = getColors(colorScheme);
   const styles = createStyles(colors);
 
+  // State management
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [showAddMeal, setShowAddMeal] = useState(false);
-  const [mealDescription, setMealDescription] = useState('');
-  const [selectedTime, setSelectedTime] = useState('');
-  const [foodEntries, setFoodEntries] = useState<DayEntry[]>([]);
+  const [showNutritionGoals, setShowNutritionGoals] = useState(false);
+  const [showMealTypeSelector, setShowMealTypeSelector] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<FoodEntry | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
+  // Data state
+  const [mealTypes, setMealTypes] = useState<MealType[]>([]);
+  const [nutritionGoals, setNutritionGoals] = useState<NutritionGoals | null>(null);
+  const [daysSummary, setDaysSummary] = useState<DayNutritionSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Form state
+  const [formData, setFormData] = useState({
+    title: '',
+    description: '',
+    meal_type_id: '',
+    date: new Date().toISOString().split('T')[0],
+    time: new Date().toTimeString().slice(0, 5),
+    calories: '',
+    protein_g: '',
+    carbs_g: '',
+    fat_g: '',
+    notes: '',
+  });
+  const [selectedPhotos, setSelectedPhotos] = useState<string[]>([]);
+
+  // Load initial data
   useEffect(() => {
-    loadFoodEntries();
-    setCurrentTime();
+    loadInitialData();
   }, []);
 
-  const loadFoodEntries = () => {
-    // Generate sample data for the past few days
-    const today = new Date();
-    const entries: DayEntry[] = [];
+  // Load data when date changes
+  useEffect(() => {
+    loadFoodEntries();
+  }, [selectedDate]);
 
-    for (let i = 0; i < 12; i++) {
-      const date = new Date(today);
-      date.setDate(today.getDate() - i);
+  const loadInitialData = async () => {
+    setLoading(true);
+    try {
+      const [mealTypesData, goalsData] = await Promise.all([
+        getMealTypes(),
+        getNutritionGoals(),
+      ]);
+
+      setMealTypes(mealTypesData);
+      setNutritionGoals(goalsData);
       
-      const dayEntry: DayEntry = {
-        date: date.toISOString().split('T')[0],
-        displayDate: i === 0 ? 'TODAY' : date.toLocaleDateString('en-US', { 
-          month: 'short', 
-          day: 'numeric' 
-        }).toUpperCase(),
-        entries: []
-      };
-
-      // Add some sample entries for recent days
-      if (i > 0 && i < 4 && Math.random() > 0.5) {
-        dayEntry.entries.push({
-          id: `entry-${i}-1`,
-          description: i === 1 ? 'Grilled chicken salad with quinoa' : 
-                      i === 2 ? 'Oatmeal with berries and almonds' :
-                      'Salmon with roasted vegetables',
-          time: '12:30 PM',
-          date: dayEntry.date
-        });
+      if (!goalsData) {
+        // Create default nutrition goals
+        const defaultGoals = {
+          daily_calories: 2000,
+          daily_protein_g: 150,
+          daily_carbs_g: 250,
+          daily_fat_g: 65,
+        };
+        const newGoals = await upsertNutritionGoals(defaultGoals);
+        setNutritionGoals(newGoals);
       }
-
-      entries.push(dayEntry);
+    } catch (error) {
+      console.error('Error loading initial data:', error);
+    } finally {
+      setLoading(false);
     }
-
-    setFoodEntries(entries);
   };
 
-  const setCurrentTime = () => {
-    const now = new Date();
-    const timeString = now.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
+  const loadFoodEntries = async () => {
+    try {
+      const startDate = new Date(selectedDate);
+      startDate.setDate(startDate.getDate() - 7);
+      const endDate = new Date(selectedDate);
+      endDate.setDate(endDate.getDate() + 1);
+
+      const data = await getFoodEntriesForDateRange(
+        startDate.toISOString().split('T')[0],
+        endDate.toISOString().split('T')[0]
+      );
+
+      setDaysSummary(data);
+    } catch (error) {
+      console.error('Error loading food entries:', error);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([loadInitialData(), loadFoodEntries()]);
+    setRefreshing(false);
+  };
+
+  const handleDateChange = (event: any, date?: Date) => {
+    setShowDatePicker(false);
+    if (date) {
+      setSelectedDate(date);
+    }
+  };
+
+  const openAddMealModal = () => {
+    setEditingEntry(null);
+    setFormData({
+      title: '',
+      description: '',
+      meal_type_id: '',
+      date: selectedDate.toISOString().split('T')[0],
+      time: new Date().toTimeString().slice(0, 5),
+      calories: '',
+      protein_g: '',
+      carbs_g: '',
+      fat_g: '',
+      notes: '',
     });
-    setSelectedTime(`Today, ${timeString}`);
+    setSelectedPhotos([]);
+    setShowAddMeal(true);
   };
 
-  const handleAddMeal = () => {
-    if (!mealDescription.trim()) {
-      Alert.alert('Error', 'Please describe what you ate');
+  const openEditMealModal = (entry: FoodEntry) => {
+    setEditingEntry(entry);
+    setFormData({
+      title: entry.title,
+      description: entry.description || '',
+      meal_type_id: entry.meal_type_id,
+      date: entry.date,
+      time: entry.time,
+      calories: entry.calories.toString(),
+      protein_g: entry.protein_g.toString(),
+      carbs_g: entry.carbs_g.toString(),
+      fat_g: entry.fat_g.toString(),
+      notes: entry.notes || '',
+    });
+    setSelectedPhotos(entry.photos?.map(p => p.photo_url) || []);
+    setShowAddMeal(true);
+  };
+
+  const handleSaveMeal = async () => {
+    if (!formData.title.trim()) {
+      Alert.alert('Error', 'Please enter a meal title');
       return;
     }
 
-    const newEntry: FoodEntry = {
-      id: Date.now().toString(),
-      description: mealDescription.trim(),
-      time: new Date().toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true
-      }),
-      date: new Date().toISOString().split('T')[0]
-    };
+    if (!formData.meal_type_id) {
+      Alert.alert('Error', 'Please select a meal type');
+      return;
+    }
 
-    // Add to today's entries
-    setFoodEntries(prev => {
-      const updated = [...prev];
-      const todayIndex = updated.findIndex(day => day.displayDate === 'TODAY');
-      if (todayIndex >= 0) {
-        updated[todayIndex].entries.unshift(newEntry);
+    try {
+      const entryData = {
+        title: formData.title.trim(),
+        description: formData.description.trim() || undefined,
+        meal_type_id: formData.meal_type_id,
+        date: formData.date,
+        time: formData.time,
+        calories: parseInt(formData.calories) || 0,
+        protein_g: parseFloat(formData.protein_g) || 0,
+        carbs_g: parseFloat(formData.carbs_g) || 0,
+        fat_g: parseFloat(formData.fat_g) || 0,
+        notes: formData.notes.trim() || undefined,
+      };
+
+      let savedEntry;
+      if (editingEntry) {
+        savedEntry = await updateFoodEntry(editingEntry.id, entryData);
+      } else {
+        savedEntry = await createFoodEntry(entryData);
       }
-      return updated;
-    });
 
-    // Reset form
-    setMealDescription('');
-    setShowAddMeal(false);
-    setCurrentTime();
-  };
+      if (savedEntry) {
+        // Add photos if any
+        for (const photoUrl of selectedPhotos) {
+          await addFoodPhoto(savedEntry.id, {
+            photo_url: photoUrl,
+            is_primary: selectedPhotos.indexOf(photoUrl) === 0,
+          });
+        }
 
-  const handleAddPhoto = () => {
-    if (Platform.OS === 'web') {
-      Alert.alert('Photo Upload', 'Photo upload would be available on mobile devices');
-    } else {
-      // Handle camera/photo picker
-      Alert.alert('Add Photo', 'Camera functionality would open here');
+        setShowAddMeal(false);
+        await loadFoodEntries();
+      } else {
+        Alert.alert('Error', 'Failed to save meal entry');
+      }
+    } catch (error) {
+      console.error('Error saving meal:', error);
+      Alert.alert('Error', 'Failed to save meal entry');
     }
   };
 
-  const renderDayEntry = (dayEntry: DayEntry) => (
-    <View key={dayEntry.date} style={styles.daySection}>
-      <View style={styles.dayHeader}>
-        <View style={styles.dayIndicator} />
-        <Text style={styles.dayLabel}>{dayEntry.displayDate}</Text>
-      </View>
-      
-      {dayEntry.entries.length === 0 ? (
-        <View style={styles.emptyDay} />
-      ) : (
-        dayEntry.entries.map((entry) => (
-          <View key={entry.id} style={styles.mealEntry}>
-            <View style={styles.mealContent}>
-              <Text style={styles.mealDescription}>{entry.description}</Text>
-              <Text style={styles.mealTime}>{entry.time}</Text>
+  const handleDeleteMeal = async (entry: FoodEntry) => {
+    Alert.alert(
+      'Delete Meal',
+      'Are you sure you want to delete this meal entry?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            const success = await deleteFoodEntry(entry.id);
+            if (success) {
+              await loadFoodEntries();
+            } else {
+              Alert.alert('Error', 'Failed to delete meal entry');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleAddPhoto = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Please grant permission to access your photo library');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setSelectedPhotos(prev => [...prev, result.assets[0].uri]);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to select image');
+    }
+  };
+
+  const handleTakePhoto = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Please grant permission to access your camera');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setSelectedPhotos(prev => [...prev, result.assets[0].uri]);
+      }
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      Alert.alert('Error', 'Failed to take photo');
+    }
+  };
+
+  const handlePhotoAction = () => {
+    Alert.alert(
+      'Add Photo',
+      'Choose an option',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Take Photo', onPress: handleTakePhoto },
+        { text: 'Choose from Gallery', onPress: handleAddPhoto },
+      ]
+    );
+  };
+
+  const removePhoto = (photoUrl: string) => {
+    setSelectedPhotos(prev => prev.filter(url => url !== photoUrl));
+  };
+
+  const getMealTypeById = (id: string) => {
+    return mealTypes.find(type => type.id === id);
+  };
+
+  const getTodaysSummary = () => {
+    const today = selectedDate.toISOString().split('T')[0];
+    return daysSummary.find(day => day.date === today);
+  };
+
+  const formatDate = (date: Date) => {
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+
+    if (date.toDateString() === today.toDateString()) {
+      return 'Today';
+    } else if (date.toDateString() === yesterday.toDateString()) {
+      return 'Yesterday';
+    } else {
+      return date.toLocaleDateString('en-US', { 
+        weekday: 'long',
+        month: 'short',
+        day: 'numeric'
+      });
+    }
+  };
+
+  const renderNutritionOverview = () => {
+    const todaysSummary = getTodaysSummary();
+    if (!nutritionGoals || !todaysSummary) return null;
+
+    const calorieProgress = (todaysSummary.total_calories / nutritionGoals.daily_calories) * 100;
+    const proteinProgress = (todaysSummary.total_protein / nutritionGoals.daily_protein_g) * 100;
+    const carbsProgress = (todaysSummary.total_carbs / nutritionGoals.daily_carbs_g) * 100;
+    const fatProgress = (todaysSummary.total_fat / nutritionGoals.daily_fat_g) * 100;
+
+    return (
+      <View style={styles.nutritionOverview}>
+        <View style={styles.nutritionHeader}>
+          <Text style={styles.nutritionTitle}>Today's Nutrition</Text>
+          <TouchableOpacity onPress={() => setShowNutritionGoals(true)}>
+            <Settings size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.nutritionGrid}>
+          <View style={styles.nutritionItem}>
+            <Text style={styles.nutritionLabel}>Calories</Text>
+            <Text style={styles.nutritionValue}>
+              {Math.round(todaysSummary.total_calories)}/{nutritionGoals.daily_calories}
+            </Text>
+            <View style={styles.progressBar}>
+              <View 
+                style={[
+                  styles.progressFill, 
+                  { 
+                    width: `${Math.min(calorieProgress, 100)}%`,
+                    backgroundColor: colors.primary 
+                  }
+                ]} 
+              />
             </View>
           </View>
-        ))
+
+          <View style={styles.nutritionItem}>
+            <Text style={styles.nutritionLabel}>Protein</Text>
+            <Text style={styles.nutritionValue}>
+              {Math.round(todaysSummary.total_protein)}g/{nutritionGoals.daily_protein_g}g
+            </Text>
+            <View style={styles.progressBar}>
+              <View 
+                style={[
+                  styles.progressFill, 
+                  { 
+                    width: `${Math.min(proteinProgress, 100)}%`,
+                    backgroundColor: colors.success 
+                  }
+                ]} 
+              />
+            </View>
+          </View>
+
+          <View style={styles.nutritionItem}>
+            <Text style={styles.nutritionLabel}>Carbs</Text>
+            <Text style={styles.nutritionValue}>
+              {Math.round(todaysSummary.total_carbs)}g/{nutritionGoals.daily_carbs_g}g
+            </Text>
+            <View style={styles.progressBar}>
+              <View 
+                style={[
+                  styles.progressFill, 
+                  { 
+                    width: `${Math.min(carbsProgress, 100)}%`,
+                    backgroundColor: colors.warning 
+                  }
+                ]} 
+              />
+            </View>
+          </View>
+
+          <View style={styles.nutritionItem}>
+            <Text style={styles.nutritionLabel}>Fat</Text>
+            <Text style={styles.nutritionValue}>
+              {Math.round(todaysSummary.total_fat)}g/{nutritionGoals.daily_fat_g}g
+            </Text>
+            <View style={styles.progressBar}>
+              <View 
+                style={[
+                  styles.progressFill, 
+                  { 
+                    width: `${Math.min(fatProgress, 100)}%`,
+                    backgroundColor: colors.error 
+                  }
+                ]} 
+              />
+            </View>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  const renderDayEntry = (daySummary: DayNutritionSummary) => (
+    <View key={daySummary.date} style={styles.daySection}>
+      <View style={styles.dayHeader}>
+        <View style={styles.dayIndicator} />
+        <View style={styles.dayInfo}>
+          <Text style={styles.dayLabel}>
+            {formatDate(new Date(daySummary.date))}
+          </Text>
+          <Text style={styles.dayStats}>
+            {daySummary.entries.length} meals • {Math.round(daySummary.total_calories)} cal
+          </Text>
+        </View>
+      </View>
+      
+      {daySummary.entries.length === 0 ? (
+        <View style={styles.emptyDay}>
+          <Text style={styles.emptyDayText}>No meals logged</Text>
+        </View>
+      ) : (
+        daySummary.entries.map((entry) => renderMealEntry(entry))
       )}
     </View>
   );
+
+  const renderMealEntry = (entry: FoodEntry) => {
+    const mealType = getMealTypeById(entry.meal_type_id);
+    
+    return (
+      <View key={entry.id} style={styles.mealEntry}>
+        <View style={styles.mealHeader}>
+          <View style={styles.mealTypeContainer}>
+            <View 
+              style={[
+                styles.mealTypeBadge, 
+                { backgroundColor: mealType?.color + '20' }
+              ]}
+            >
+              <Text style={styles.mealTypeEmoji}>{mealType?.emoji}</Text>
+              <Text style={[styles.mealTypeName, { color: mealType?.color }]}>
+                {mealType?.name}
+              </Text>
+            </View>
+            <Text style={styles.mealTime}>{entry.time}</Text>
+          </View>
+          
+          <TouchableOpacity 
+            style={styles.mealActions}
+            onPress={() => {
+              Alert.alert(
+                'Meal Options',
+                'Choose an action',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Edit', onPress: () => openEditMealModal(entry) },
+                  { text: 'Delete', style: 'destructive', onPress: () => handleDeleteMeal(entry) },
+                ]
+              );
+            }}
+          >
+            <MoreHorizontal size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.mealContent}>
+          <Text style={styles.mealTitle}>{entry.title}</Text>
+          {entry.description && (
+            <Text style={styles.mealDescription}>{entry.description}</Text>
+          )}
+          
+          {entry.photos && entry.photos.length > 0 && (
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              style={styles.mealPhotos}
+            >
+              {entry.photos.map((photo) => (
+                <Image
+                  key={photo.id}
+                  source={{ uri: photo.photo_url }}
+                  style={styles.mealPhoto}
+                />
+              ))}
+            </ScrollView>
+          )}
+
+          <View style={styles.nutritionInfo}>
+            <View style={styles.nutritionBadge}>
+              <Text style={styles.nutritionBadgeText}>{entry.calories} cal</Text>
+            </View>
+            {entry.protein_g > 0 && (
+              <View style={styles.nutritionBadge}>
+                <Text style={styles.nutritionBadgeText}>{entry.protein_g}g protein</Text>
+              </View>
+            )}
+            {entry.carbs_g > 0 && (
+              <View style={styles.nutritionBadge}>
+                <Text style={styles.nutritionBadgeText}>{entry.carbs_g}g carbs</Text>
+              </View>
+            )}
+            {entry.fat_g > 0 && (
+              <View style={styles.nutritionBadge}>
+                <Text style={styles.nutritionBadgeText}>{entry.fat_g}g fat</Text>
+              </View>
+            )}
+          </View>
+
+          {entry.notes && (
+            <Text style={styles.mealNotes}>{entry.notes}</Text>
+          )}
+        </View>
+      </View>
+    );
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading your food journal...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -170,18 +584,51 @@ export default function FoodJournalScreen() {
           <ArrowLeft size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.title}>Food Journal</Text>
-        <TouchableOpacity onPress={() => setShowAddMeal(true)} style={styles.addButton}>
-          <Text style={styles.addButtonText}>Add</Text>
+        <TouchableOpacity onPress={openAddMealModal} style={styles.addButton}>
+          <Plus size={24} color={colors.primary} />
         </TouchableOpacity>
       </View>
 
+      {/* Date Selector */}
+      <View style={styles.dateSelector}>
+        <TouchableOpacity 
+          style={styles.dateButton}
+          onPress={() => setShowDatePicker(true)}
+        >
+          <Calendar size={20} color={colors.primary} />
+          <Text style={styles.dateButtonText}>
+            {formatDate(selectedDate)}
+          </Text>
+          <ChevronDown size={16} color={colors.textSecondary} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Nutrition Overview */}
+      {renderNutritionOverview()}
+
       {/* Timeline */}
-      <ScrollView style={styles.timeline} showsVerticalScrollIndicator={false}>
-        {foodEntries.map(renderDayEntry)}
+      <ScrollView 
+        style={styles.timeline} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        }
+      >
+        {daysSummary.map(renderDayEntry)}
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* Add Meal Modal */}
+      {/* Date Picker */}
+      {showDatePicker && (
+        <DateTimePicker
+          value={selectedDate}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={handleDateChange}
+        />
+      )}
+
+      {/* Add/Edit Meal Modal */}
       <Modal
         visible={showAddMeal}
         animationType="slide"
@@ -189,54 +636,231 @@ export default function FoodJournalScreen() {
         onRequestClose={() => setShowAddMeal(false)}
       >
         <SafeAreaView style={styles.modalContainer}>
-          {/* Modal Header */}
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={() => setShowAddMeal(false)}>
               <X size={24} color={colors.text} />
             </TouchableOpacity>
-            <Text style={styles.modalTitle}>Add meal</Text>
-            <TouchableOpacity 
-              onPress={handleAddMeal}
-              style={[
-                styles.postButton,
-                !mealDescription.trim() && styles.postButtonDisabled
-              ]}
-              disabled={!mealDescription.trim()}
-            >
-              <Text style={[
-                styles.postButtonText,
-                !mealDescription.trim() && styles.postButtonTextDisabled
-              ]}>
-                Post
-              </Text>
+            <Text style={styles.modalTitle}>
+              {editingEntry ? 'Edit Meal' : 'Add Meal'}
+            </Text>
+            <TouchableOpacity onPress={handleSaveMeal}>
+              <Save size={24} color={colors.primary} />
             </TouchableOpacity>
           </View>
 
-          {/* Modal Content */}
-          <View style={styles.modalContent}>
-            <TextInput
-              style={styles.mealInput}
-              value={mealDescription}
-              onChangeText={setMealDescription}
-              placeholder="What did you eat?..."
-              placeholderTextColor={colors.textTertiary}
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-              autoFocus
-            />
+          <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
+            {/* Basic Info */}
+            <View style={styles.formSection}>
+              <Text style={styles.formSectionTitle}>Basic Information</Text>
+              
+              <View style={styles.formField}>
+                <Text style={styles.fieldLabel}>Meal Title *</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={formData.title}
+                  onChangeText={(text) => setFormData(prev => ({ ...prev, title: text }))}
+                  placeholder="What did you eat?"
+                  placeholderTextColor={colors.textTertiary}
+                />
+              </View>
 
-            <View style={styles.mealActions}>
-              <TouchableOpacity style={styles.actionButton} onPress={handleAddPhoto}>
-                <Camera size={20} color={colors.textSecondary} />
-                <Text style={styles.actionButtonText}>Add photo</Text>
-              </TouchableOpacity>
+              <View style={styles.formField}>
+                <Text style={styles.fieldLabel}>Description</Text>
+                <TextInput
+                  style={[styles.textInput, styles.textArea]}
+                  value={formData.description}
+                  onChangeText={(text) => setFormData(prev => ({ ...prev, description: text }))}
+                  placeholder="Add details about your meal..."
+                  placeholderTextColor={colors.textTertiary}
+                  multiline
+                  numberOfLines={3}
+                />
+              </View>
 
-              <View style={styles.timeDisplay}>
-                <Clock size={16} color={colors.textSecondary} />
-                <Text style={styles.timeText}>{selectedTime}</Text>
+              <View style={styles.formField}>
+                <Text style={styles.fieldLabel}>Meal Type *</Text>
+                <TouchableOpacity
+                  style={styles.picker}
+                  onPress={() => setShowMealTypeSelector(true)}
+                >
+                  <Text style={[
+                    styles.pickerText,
+                    !formData.meal_type_id && styles.placeholderText
+                  ]}>
+                    {formData.meal_type_id 
+                      ? `${getMealTypeById(formData.meal_type_id)?.emoji} ${getMealTypeById(formData.meal_type_id)?.name}`
+                      : 'Select meal type'
+                    }
+                  </Text>
+                  <ChevronDown size={20} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.formRow}>
+                <View style={styles.formFieldHalf}>
+                  <Text style={styles.fieldLabel}>Date</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={formData.date}
+                    onChangeText={(text) => setFormData(prev => ({ ...prev, date: text }))}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor={colors.textTertiary}
+                  />
+                </View>
+
+                <View style={styles.formFieldHalf}>
+                  <Text style={styles.fieldLabel}>Time</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={formData.time}
+                    onChangeText={(text) => setFormData(prev => ({ ...prev, time: text }))}
+                    placeholder="HH:MM"
+                    placeholderTextColor={colors.textTertiary}
+                  />
+                </View>
               </View>
             </View>
+
+            {/* Photos */}
+            <View style={styles.formSection}>
+              <Text style={styles.formSectionTitle}>Photos</Text>
+              
+              <View style={styles.photoSection}>
+                <TouchableOpacity style={styles.addPhotoButton} onPress={handlePhotoAction}>
+                  <Camera size={24} color={colors.primary} />
+                  <Text style={styles.addPhotoText}>Add Photo</Text>
+                </TouchableOpacity>
+
+                {selectedPhotos.length > 0 && (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.selectedPhotos}>
+                    {selectedPhotos.map((photoUrl, index) => (
+                      <View key={index} style={styles.selectedPhotoContainer}>
+                        <Image source={{ uri: photoUrl }} style={styles.selectedPhoto} />
+                        <TouchableOpacity
+                          style={styles.removePhotoButton}
+                          onPress={() => removePhoto(photoUrl)}
+                        >
+                          <X size={16} color="#FFFFFF" />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </ScrollView>
+                )}
+              </View>
+            </View>
+
+            {/* Nutrition */}
+            <View style={styles.formSection}>
+              <Text style={styles.formSectionTitle}>Nutrition Information</Text>
+              
+              <View style={styles.formRow}>
+                <View style={styles.formFieldHalf}>
+                  <Text style={styles.fieldLabel}>Calories</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={formData.calories}
+                    onChangeText={(text) => setFormData(prev => ({ ...prev, calories: text }))}
+                    placeholder="0"
+                    placeholderTextColor={colors.textTertiary}
+                    keyboardType="numeric"
+                  />
+                </View>
+
+                <View style={styles.formFieldHalf}>
+                  <Text style={styles.fieldLabel}>Protein (g)</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={formData.protein_g}
+                    onChangeText={(text) => setFormData(prev => ({ ...prev, protein_g: text }))}
+                    placeholder="0"
+                    placeholderTextColor={colors.textTertiary}
+                    keyboardType="numeric"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.formRow}>
+                <View style={styles.formFieldHalf}>
+                  <Text style={styles.fieldLabel}>Carbs (g)</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={formData.carbs_g}
+                    onChangeText={(text) => setFormData(prev => ({ ...prev, carbs_g: text }))}
+                    placeholder="0"
+                    placeholderTextColor={colors.textTertiary}
+                    keyboardType="numeric"
+                  />
+                </View>
+
+                <View style={styles.formFieldHalf}>
+                  <Text style={styles.fieldLabel}>Fat (g)</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={formData.fat_g}
+                    onChangeText={(text) => setFormData(prev => ({ ...prev, fat_g: text }))}
+                    placeholder="0"
+                    placeholderTextColor={colors.textTertiary}
+                    keyboardType="numeric"
+                  />
+                </View>
+              </View>
+            </View>
+
+            {/* Notes */}
+            <View style={styles.formSection}>
+              <Text style={styles.formSectionTitle}>Notes</Text>
+              <TextInput
+                style={[styles.textInput, styles.textArea]}
+                value={formData.notes}
+                onChangeText={(text) => setFormData(prev => ({ ...prev, notes: text }))}
+                placeholder="Any additional notes..."
+                placeholderTextColor={colors.textTertiary}
+                multiline
+                numberOfLines={3}
+              />
+            </View>
+
+            <View style={{ height: 50 }} />
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Meal Type Selector Modal */}
+      <Modal
+        visible={showMealTypeSelector}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowMealTypeSelector(false)}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setShowMealTypeSelector(false)}>
+              <X size={24} color={colors.text} />
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Select Meal Type</Text>
+            <View style={{ width: 24 }} />
+          </View>
+
+          <View style={styles.mealTypeList}>
+            {mealTypes.map((mealType) => (
+              <TouchableOpacity
+                key={mealType.id}
+                style={[
+                  styles.mealTypeOption,
+                  formData.meal_type_id === mealType.id && styles.selectedMealTypeOption
+                ]}
+                onPress={() => {
+                  setFormData(prev => ({ ...prev, meal_type_id: mealType.id }));
+                  setShowMealTypeSelector(false);
+                }}
+              >
+                <Text style={styles.mealTypeOptionEmoji}>{mealType.emoji}</Text>
+                <Text style={styles.mealTypeOptionName}>{mealType.name}</Text>
+                {formData.meal_type_id === mealType.id && (
+                  <Text style={styles.selectedIndicator}>✓</Text>
+                )}
+              </TouchableOpacity>
+            ))}
           </View>
         </SafeAreaView>
       </Modal>
@@ -248,6 +872,16 @@ const createStyles = (colors: any) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 16,
+    color: colors.textSecondary,
   },
   header: {
     flexDirection: 'row',
@@ -269,15 +903,82 @@ const createStyles = (colors: any) => StyleSheet.create({
   addButton: {
     padding: 4,
   },
-  addButtonText: {
+  dateSelector: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  dateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  dateButtonText: {
     fontFamily: 'Inter-SemiBold',
     fontSize: 16,
-    color: colors.primary,
+    color: colors.text,
+    flex: 1,
+  },
+  nutritionOverview: {
+    backgroundColor: colors.surface,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  nutritionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  nutritionTitle: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 18,
+    color: colors.text,
+  },
+  nutritionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 16,
+  },
+  nutritionItem: {
+    flex: 1,
+    minWidth: '45%',
+  },
+  nutritionLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: 4,
+  },
+  nutritionValue: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: colors.text,
+    marginBottom: 8,
+  },
+  progressBar: {
+    height: 4,
+    backgroundColor: colors.borderLight,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 2,
   },
   timeline: {
     flex: 1,
     paddingHorizontal: 20,
-    paddingTop: 20,
   },
   daySection: {
     marginBottom: 32,
@@ -291,19 +992,34 @@ const createStyles = (colors: any) => StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: colors.textTertiary,
+    backgroundColor: colors.primary,
     marginRight: 12,
+  },
+  dayInfo: {
+    flex: 1,
   },
   dayLabel: {
     fontFamily: 'Inter-SemiBold',
-    fontSize: 14,
+    fontSize: 16,
+    color: colors.text,
+    marginBottom: 2,
+  },
+  dayStats: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
     color: colors.textSecondary,
-    letterSpacing: 0.5,
   },
   emptyDay: {
-    height: 1,
-    backgroundColor: colors.borderLight,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: 20,
+    alignItems: 'center',
     marginLeft: 20,
+  },
+  emptyDayText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 14,
+    color: colors.textSecondary,
   },
   mealEntry: {
     backgroundColor: colors.surface,
@@ -317,20 +1033,84 @@ const createStyles = (colors: any) => StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
+  mealHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  mealTypeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  mealTypeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    gap: 6,
+  },
+  mealTypeEmoji: {
+    fontSize: 16,
+  },
+  mealTypeName: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 12,
+  },
+  mealTime: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  mealActions: {
+    padding: 4,
+  },
   mealContent: {
-    flex: 1,
+    gap: 8,
+  },
+  mealTitle: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 16,
+    color: colors.text,
   },
   mealDescription: {
     fontFamily: 'Inter-Regular',
-    fontSize: 16,
-    color: colors.text,
-    lineHeight: 22,
-    marginBottom: 8,
+    fontSize: 14,
+    color: colors.textSecondary,
+    lineHeight: 20,
   },
-  mealTime: {
+  mealPhotos: {
+    marginVertical: 8,
+  },
+  mealPhoto: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    marginRight: 8,
+  },
+  nutritionInfo: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  nutritionBadge: {
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  nutritionBadgeText: {
     fontFamily: 'Inter-Medium',
+    fontSize: 11,
+    color: colors.textSecondary,
+  },
+  mealNotes: {
+    fontFamily: 'Inter-Regular',
     fontSize: 12,
     color: colors.textSecondary,
+    fontStyle: 'italic',
   },
   modalContainer: {
     flex: 1,
@@ -338,8 +1118,8 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   modalHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
@@ -350,62 +1130,141 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 18,
     color: colors.text,
   },
-  postButton: {
-    backgroundColor: colors.primary,
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  postButtonDisabled: {
-    backgroundColor: colors.borderLight,
-  },
-  postButtonText: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 14,
-    color: '#FFFFFF',
-  },
-  postButtonTextDisabled: {
-    color: colors.textTertiary,
-  },
   modalContent: {
     flex: 1,
     padding: 20,
   },
-  mealInput: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 18,
+  formSection: {
+    marginBottom: 24,
+  },
+  formSectionTitle: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 16,
     color: colors.text,
-    lineHeight: 24,
-    marginBottom: 32,
-    minHeight: 120,
+    marginBottom: 16,
   },
-  mealActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  formField: {
+    marginBottom: 16,
   },
-  actionButton: {
+  formRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    gap: 16,
+  },
+  formFieldHalf: {
+    flex: 1,
+  },
+  fieldLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 14,
+    color: colors.text,
+    marginBottom: 8,
+  },
+  textInput: {
     backgroundColor: colors.surfaceSecondary,
-    borderRadius: 20,
-    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontFamily: 'Inter-Regular',
+    fontSize: 16,
+    color: colors.text,
+  },
+  textArea: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  picker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 12,
     paddingVertical: 12,
   },
-  actionButtonText: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginLeft: 8,
+  pickerText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 16,
+    color: colors.text,
   },
-  timeDisplay: {
+  placeholderText: {
+    color: colors.textTertiary,
+  },
+  photoSection: {
+    gap: 16,
+  },
+  addPhotoButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    paddingVertical: 16,
+    gap: 8,
   },
-  timeText: {
+  addPhotoText: {
     fontFamily: 'Inter-Medium',
     fontSize: 14,
-    color: colors.textSecondary,
-    marginLeft: 6,
+    color: colors.primary,
+  },
+  selectedPhotos: {
+    flexDirection: 'row',
+  },
+  selectedPhotoContainer: {
+    position: 'relative',
+    marginRight: 8,
+  },
+  selectedPhoto: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+  },
+  removePhotoButton: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.error,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mealTypeList: {
+    padding: 20,
+  },
+  mealTypeOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 8,
+    gap: 12,
+  },
+  selectedMealTypeOption: {
+    backgroundColor: colors.primary + '20',
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  mealTypeOptionEmoji: {
+    fontSize: 24,
+  },
+  mealTypeOptionName: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 16,
+    color: colors.text,
+    flex: 1,
+  },
+  selectedIndicator: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 16,
+    color: colors.primary,
   },
 });

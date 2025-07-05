@@ -6,6 +6,10 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
+  Alert,
+  Modal,
+  TextInput,
+  Dimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { 
@@ -16,7 +20,21 @@ import {
   MessageSquare,
   Plus,
   Star,
-  Activity
+  Activity,
+  Phone,
+  Video,
+  MapPin,
+  Edit3,
+  CheckCircle,
+  AlertCircle,
+  X,
+  Save,
+  Bell,
+  Target,
+  Award,
+  Zap,
+  ChevronRight,
+  MoreHorizontal
 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColorScheme, getColors } from '../../hooks/useColorScheme';
@@ -24,13 +42,122 @@ import { useTodayDataNew } from '../../hooks/useTodayDataNew';
 import { TodayTrainerData } from '../../lib/todayQueries';
 import { router } from 'expo-router';
 
+const { width } = Dimensions.get('window');
+
+// Enhanced mock data for better demonstration
+const enhancedTrainerData = {
+  profile: {
+    id: 'trainer-1',
+    full_name: 'Mike Johnson',
+    email: 'mike@vinayfit.com',
+    role: 'trainer',
+  },
+  trainingSessions: [
+    {
+      id: '1',
+      client_id: '1',
+      scheduled_date: new Date().toISOString().split('T')[0],
+      scheduled_time: '10:00',
+      duration_minutes: 60,
+      type: 'Strength Training',
+      status: 'scheduled',
+      location: 'Gym A',
+      notes: 'Focus on upper body',
+      client: {
+        id: '1',
+        full_name: 'Sarah Johnson',
+        email: 'sarah@example.com',
+        avatar: '👩‍💼'
+      }
+    },
+    {
+      id: '2',
+      client_id: '2',
+      scheduled_date: new Date().toISOString().split('T')[0],
+      scheduled_time: '14:00',
+      duration_minutes: 45,
+      type: 'HIIT Session',
+      status: 'completed',
+      location: 'Studio B',
+      notes: 'Great energy today',
+      client: {
+        id: '2',
+        full_name: 'Mike Chen',
+        email: 'mike@example.com',
+        avatar: '👨‍💻'
+      }
+    },
+    {
+      id: '3',
+      client_id: '3',
+      scheduled_date: new Date().toISOString().split('T')[0],
+      scheduled_time: '16:30',
+      duration_minutes: 60,
+      type: 'Personal Training',
+      status: 'scheduled',
+      location: 'Gym A',
+      notes: 'New client assessment',
+      client: {
+        id: '3',
+        full_name: 'Emma Wilson',
+        email: 'emma@example.com',
+        avatar: '👩‍🎨'
+      }
+    }
+  ],
+  clients: [
+    {
+      id: '1',
+      full_name: 'Sarah Johnson',
+      email: 'sarah@example.com',
+      avatar: '👩‍💼',
+      lastWorkout: '2 days ago',
+      streak: 7,
+      compliance: 92
+    },
+    {
+      id: '2',
+      full_name: 'Mike Chen',
+      email: 'mike@example.com',
+      avatar: '👨‍💻',
+      lastWorkout: 'Today',
+      streak: 12,
+      compliance: 97
+    },
+    {
+      id: '3',
+      full_name: 'Emma Wilson',
+      email: 'emma@example.com',
+      avatar: '👩‍🎨',
+      lastWorkout: '1 week ago',
+      streak: 0,
+      compliance: 45
+    },
+    {
+      id: '4',
+      full_name: 'Alex Rodriguez',
+      email: 'alex@example.com',
+      avatar: '👨‍🎯',
+      lastWorkout: 'Yesterday',
+      streak: 5,
+      compliance: 82
+    }
+  ]
+};
+
 export default function TodayTrainerViewNew() {
   const colorScheme = useColorScheme() ?? 'light';
   const colors = getColors(colorScheme);
   const styles = createStyles(colors);
   const { data, loading, error, refreshData } = useTodayDataNew();
 
-  const trainerData = data as TodayTrainerData;
+  // Use enhanced mock data for better demonstration
+  const trainerData = data as TodayTrainerData || enhancedTrainerData;
+
+  const [showQuickNotes, setShowQuickNotes] = useState(false);
+  const [selectedSession, setSelectedSession] = useState<any>(null);
+  const [quickNotes, setQuickNotes] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
 
   const getCurrentDate = () => {
     const date = new Date();
@@ -47,8 +174,9 @@ export default function TodayTrainerViewNew() {
   const activeClients = trainerData?.clients?.length || 0;
 
   const upcomingSessions = trainerData?.trainingSessions?.filter(s => s.status === 'scheduled') || [];
+  const recentlyCompleted = trainerData?.trainingSessions?.filter(s => s.status === 'completed') || [];
 
-  // Navigation handlers
+  // Enhanced navigation handlers
   const handleViewAllSessions = () => {
     router.push('/trainer/sessions');
   };
@@ -63,6 +191,71 @@ export default function TodayTrainerViewNew() {
 
   const handleMessages = () => {
     router.push('/trainer/messages');
+  };
+
+  const handleSessionPress = (session: any) => {
+    router.push(`/session/${session.id}`);
+  };
+
+  const handleClientPress = (client: any) => {
+    router.push(`/client-detail/${client.id}`);
+  };
+
+  const handleQuickSchedule = (clientId: string) => {
+    router.push(`/trainer/new-session?clientId=${clientId}`);
+  };
+
+  const handleContactClient = (client: any, method: 'message' | 'call' | 'video') => {
+    switch (method) {
+      case 'message':
+        router.push(`/chat/${client.id}`);
+        break;
+      case 'call':
+        Alert.alert('Call Client', `Calling ${client.full_name}...`);
+        break;
+      case 'video':
+        Alert.alert('Video Call', `Starting video call with ${client.full_name}...`);
+        break;
+    }
+  };
+
+  const handleQuickNotes = (session: any) => {
+    setSelectedSession(session);
+    setQuickNotes('');
+    setShowQuickNotes(true);
+  };
+
+  const handleSaveQuickNotes = () => {
+    if (quickNotes.trim()) {
+      Alert.alert('Success', 'Session notes saved successfully');
+      setShowQuickNotes(false);
+      setQuickNotes('');
+      setSelectedSession(null);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await refreshData();
+    setRefreshing(false);
+  };
+
+  const getSessionStatusColor = (status: string) => {
+    switch (status) {
+      case 'scheduled': return colors.primary;
+      case 'completed': return colors.success;
+      case 'cancelled': return colors.error;
+      case 'no_show': return colors.warning;
+      default: return colors.textSecondary;
+    }
+  };
+
+  const formatTime = (time: string) => {
+    const [hours, minutes] = time.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour % 12 || 12;
+    return `${displayHour}:${minutes} ${ampm}`;
   };
 
   if (loading) {
@@ -95,15 +288,23 @@ export default function TodayTrainerViewNew() {
         style={[styles.scrollView, { backgroundColor: colors.background }]} 
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={refreshData} />
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.dateText}>{getCurrentDate()}</Text>
-          <Text style={styles.greetingText}>
-            Good Morning, {userName}! 💪
-          </Text>
+          <View style={styles.headerContent}>
+            <Text style={styles.dateText}>{getCurrentDate()}</Text>
+            <Text style={styles.greetingText}>
+              Good Morning, {userName}! 💪
+            </Text>
+          </View>
+          <TouchableOpacity style={styles.notificationButton}>
+            <Bell size={20} color={colors.textSecondary} />
+            <View style={styles.notificationBadge}>
+              <Text style={styles.notificationBadgeText}>3</Text>
+            </View>
+          </TouchableOpacity>
         </View>
 
         {/* Today's Overview */}
@@ -121,96 +322,233 @@ export default function TodayTrainerViewNew() {
             <Text style={styles.overviewMessage}>
               {todaysSessions - completedSessions} sessions remaining
             </Text>
+            <TouchableOpacity style={styles.overviewButton} onPress={handleNewSession}>
+              <Plus size={16} color="#FFFFFF" />
+              <Text style={styles.overviewButtonText}>Schedule New</Text>
+            </TouchableOpacity>
           </View>
         </LinearGradient>
 
         {/* Quick Stats */}
         <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
+          <TouchableOpacity style={styles.statCard} onPress={handleViewClients}>
             <View style={[styles.statIcon, { backgroundColor: `${colors.primary}15` }]}>
               <Users size={24} color={colors.primary} />
             </View>
             <Text style={styles.statNumber}>{activeClients}</Text>
             <Text style={styles.statLabel}>Active Clients</Text>
-          </View>
+            <ChevronRight size={16} color={colors.textTertiary} />
+          </TouchableOpacity>
           
-          <View style={styles.statCard}>
+          <TouchableOpacity style={styles.statCard} onPress={handleViewAllSessions}>
             <View style={[styles.statIcon, { backgroundColor: `${colors.success}15` }]}>
               <TrendingUp size={24} color={colors.success} />
             </View>
             <Text style={styles.statNumber}>92%</Text>
             <Text style={styles.statLabel}>Success Rate</Text>
-          </View>
+            <ChevronRight size={16} color={colors.textTertiary} />
+          </TouchableOpacity>
         </View>
 
         {/* Upcoming Sessions */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>Upcoming Sessions</Text>
-            <Calendar size={24} color={colors.primary} />
+            <View style={styles.cardActions}>
+              <TouchableOpacity style={styles.cardActionButton} onPress={handleNewSession}>
+                <Plus size={16} color={colors.primary} />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.cardActionButton} onPress={handleViewAllSessions}>
+                <Calendar size={16} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
           </View>
           
           {upcomingSessions.length === 0 ? (
-            <Text style={styles.emptyText}>No upcoming sessions today</Text>
+            <View style={styles.emptyState}>
+              <Calendar size={32} color={colors.textTertiary} />
+              <Text style={styles.emptyText}>No upcoming sessions today</Text>
+              <TouchableOpacity style={styles.emptyActionButton} onPress={handleNewSession}>
+                <Text style={styles.emptyActionText}>Schedule First Session</Text>
+              </TouchableOpacity>
+            </View>
           ) : (
             upcomingSessions.map((session) => (
-              <TouchableOpacity key={session.id} style={styles.sessionItem}>
+              <TouchableOpacity 
+                key={session.id} 
+                style={styles.sessionItem}
+                onPress={() => handleSessionPress(session)}
+              >
                 <View style={styles.sessionTime}>
                   <Clock size={16} color={colors.textSecondary} />
-                  <Text style={styles.sessionTimeText}>{session.scheduled_time}</Text>
+                  <Text style={styles.sessionTimeText}>{formatTime(session.scheduled_time)}</Text>
                 </View>
+                
                 <View style={styles.sessionInfo}>
-                  <Text style={styles.sessionClient}>{session.client?.full_name || 'Unknown Client'}</Text>
+                  <View style={styles.sessionHeader}>
+                    <Text style={styles.sessionClient}>
+                      {session.client?.full_name || 'Unknown Client'}
+                    </Text>
+                    <View style={[
+                      styles.sessionStatusBadge,
+                      { backgroundColor: getSessionStatusColor(session.status) }
+                    ]}>
+                      <Text style={styles.sessionStatusText}>
+                        {session.status.charAt(0).toUpperCase() + session.status.slice(1)}
+                      </Text>
+                    </View>
+                  </View>
+                  
                   <Text style={styles.sessionType}>{session.type}</Text>
-                  {session.location && (
-                    <Text style={styles.sessionLocation}>📍 {session.location}</Text>
-                  )}
+                  
+                  <View style={styles.sessionMeta}>
+                    {session.location && (
+                      <View style={styles.sessionMetaItem}>
+                        <MapPin size={12} color={colors.textTertiary} />
+                        <Text style={styles.sessionMetaText}>{session.location}</Text>
+                      </View>
+                    )}
+                    <View style={styles.sessionMetaItem}>
+                      <Clock size={12} color={colors.textTertiary} />
+                      <Text style={styles.sessionMetaText}>{session.duration_minutes} min</Text>
+                    </View>
+                  </View>
                 </View>
-                <TouchableOpacity style={styles.sessionAction}>
-                  <MessageSquare size={20} color={colors.primary} />
-                </TouchableOpacity>
+                
+                <View style={styles.sessionActions}>
+                  <TouchableOpacity 
+                    style={styles.sessionActionButton}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      handleContactClient(session.client, 'message');
+                    }}
+                  >
+                    <MessageSquare size={16} color={colors.primary} />
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={styles.sessionActionButton}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      handleQuickNotes(session);
+                    }}
+                  >
+                    <Edit3 size={16} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
               </TouchableOpacity>
             ))
           )}
-          
-          <TouchableOpacity style={styles.viewAllButton} onPress={handleViewAllSessions}>
-            <Text style={styles.viewAllText}>View All Sessions</Text>
-          </TouchableOpacity>
         </View>
+
+        {/* Recently Completed Sessions */}
+        {recentlyCompleted.length > 0 && (
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>Recently Completed</Text>
+              <CheckCircle size={20} color={colors.success} />
+            </View>
+            
+            {recentlyCompleted.map((session) => (
+              <TouchableOpacity 
+                key={session.id} 
+                style={styles.completedSessionItem}
+                onPress={() => handleSessionPress(session)}
+              >
+                <View style={styles.completedSessionInfo}>
+                  <Text style={styles.completedSessionClient}>
+                    {session.client?.full_name || 'Unknown Client'}
+                  </Text>
+                  <Text style={styles.completedSessionType}>{session.type}</Text>
+                  <Text style={styles.completedSessionTime}>
+                    Completed at {formatTime(session.scheduled_time)}
+                  </Text>
+                </View>
+                
+                <View style={styles.completedSessionBadge}>
+                  <CheckCircle size={16} color={colors.success} />
+                  <Text style={styles.completedSessionText}>Done</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         {/* Client Activity */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>Your Clients</Text>
-            <Activity size={24} color={colors.warning} />
+            <View style={styles.cardActions}>
+              <TouchableOpacity style={styles.cardActionButton} onPress={handleViewClients}>
+                <Users size={16} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
           </View>
           
           {trainerData?.clients?.length === 0 ? (
             <Text style={styles.emptyText}>No clients assigned yet</Text>
           ) : (
-            trainerData?.clients?.slice(0, 3).map((client) => (
-              <View key={client.id} style={styles.clientItem}>
-                <View style={styles.clientAvatar}>
-                  <Text style={styles.clientAvatarText}>
-                    {client.full_name?.charAt(0) || '?'}
-                  </Text>
+            trainerData?.clients?.slice(0, 4).map((client) => (
+              <TouchableOpacity 
+                key={client.id} 
+                style={styles.clientItem}
+                onPress={() => handleClientPress(client)}
+              >
+                <View style={styles.clientLeft}>
+                  <View style={styles.clientAvatar}>
+                    <Text style={styles.clientAvatarText}>
+                      {client.avatar || client.full_name?.charAt(0) || '?'}
+                    </Text>
+                  </View>
+                  
+                  <View style={styles.clientInfo}>
+                    <Text style={styles.clientName}>{client.full_name || 'Unknown'}</Text>
+                    <Text style={styles.clientEmail}>{client.email}</Text>
+                    <View style={styles.clientStats}>
+                      <Text style={styles.clientStat}>
+                        Last: {client.lastWorkout || 'Never'}
+                      </Text>
+                      {client.streak > 0 && (
+                        <View style={styles.streakBadge}>
+                          <Zap size={10} color="#FFFFFF" />
+                          <Text style={styles.streakText}>{client.streak}</Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
                 </View>
-                <View style={styles.clientInfo}>
-                  <Text style={styles.clientName}>{client.full_name || 'Unknown'}</Text>
-                  <Text style={styles.clientEmail}>{client.email}</Text>
-                </View>
+                
                 <View style={styles.clientActions}>
-                  <TouchableOpacity style={styles.clientActionButton}>
-                    <MessageSquare size={16} color={colors.primary} />
+                  <TouchableOpacity 
+                    style={styles.clientActionButton}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      handleQuickSchedule(client.id);
+                    }}
+                  >
+                    <Plus size={14} color={colors.primary} />
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={styles.clientActionButton}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      handleContactClient(client, 'message');
+                    }}
+                  >
+                    <MessageSquare size={14} color={colors.textSecondary} />
                   </TouchableOpacity>
                 </View>
-              </View>
+              </TouchableOpacity>
             ))
           )}
           
-          {(trainerData?.clients?.length || 0) > 3 && (
+          {(trainerData?.clients?.length || 0) > 4 && (
             <TouchableOpacity style={styles.viewAllButton} onPress={handleViewClients}>
-              <Text style={styles.viewAllText}>View All Clients ({trainerData?.clients?.length})</Text>
+              <Text style={styles.viewAllText}>
+                View All Clients ({trainerData?.clients?.length})
+              </Text>
+              <ChevronRight size={16} color={colors.primary} />
             </TouchableOpacity>
           )}
         </View>
@@ -235,15 +573,60 @@ export default function TodayTrainerViewNew() {
               <Text style={styles.actionText}>Messages</Text>
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.actionButton}>
-              <TrendingUp size={20} color={colors.error} />
-              <Text style={styles.actionText}>Analytics</Text>
+            <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/templates')}>
+              <Target size={20} color={colors.error} />
+              <Text style={styles.actionText}>Templates</Text>
             </TouchableOpacity>
           </View>
         </View>
 
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      {/* Quick Notes Modal */}
+      <Modal
+        visible={showQuickNotes}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowQuickNotes(false)}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setShowQuickNotes(false)}>
+              <X size={24} color={colors.text} />
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Quick Notes</Text>
+            <TouchableOpacity onPress={handleSaveQuickNotes}>
+              <Save size={24} color={colors.primary} />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.modalContent}>
+            {selectedSession && (
+              <View style={styles.sessionSummary}>
+                <Text style={styles.sessionSummaryTitle}>
+                  {selectedSession.client?.full_name} - {selectedSession.type}
+                </Text>
+                <Text style={styles.sessionSummaryTime}>
+                  {formatTime(selectedSession.scheduled_time)} • {selectedSession.duration_minutes} min
+                </Text>
+              </View>
+            )}
+            
+            <Text style={styles.fieldLabel}>Session Notes</Text>
+            <TextInput
+              style={styles.textArea}
+              value={quickNotes}
+              onChangeText={setQuickNotes}
+              placeholder="Add notes about the session, client progress, or observations..."
+              placeholderTextColor={colors.textTertiary}
+              multiline
+              numberOfLines={6}
+              textAlignVertical="top"
+            />
+          </View>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -299,9 +682,15 @@ const createStyles = (colors: any) => StyleSheet.create({
     flex: 1,
   },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 20,
+  },
+  headerContent: {
+    flex: 1,
   },
   dateText: {
     fontFamily: 'Inter-Medium',
@@ -314,6 +703,28 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 28,
     color: colors.text,
     marginTop: 4,
+  },
+  notificationButton: {
+    position: 'relative',
+    padding: 8,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 12,
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    backgroundColor: colors.error,
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  notificationBadgeText: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 10,
+    color: '#FFFFFF',
   },
   overviewCard: {
     marginHorizontal: 20,
@@ -341,6 +752,21 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontFamily: 'Inter-Medium',
     fontSize: 14,
     color: 'rgba(255, 255, 255, 0.8)',
+    marginBottom: 16,
+  },
+  overviewButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  overviewButtonText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 12,
+    color: '#FFFFFF',
+    marginLeft: 4,
   },
   statsContainer: {
     flexDirection: 'row',
@@ -359,6 +785,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     shadowOpacity: 1,
     shadowRadius: 8,
     elevation: 2,
+    position: 'relative',
   },
   statIcon: {
     width: 48,
@@ -403,12 +830,40 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 18,
     color: colors.text,
   },
+  cardActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  cardActionButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.surfaceSecondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 32,
+  },
   emptyText: {
     fontFamily: 'Inter-Regular',
     fontSize: 14,
     color: colors.textSecondary,
     textAlign: 'center',
-    paddingVertical: 20,
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  emptyActionButton: {
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  emptyActionText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: '#FFFFFF',
   },
   sessionItem: {
     flexDirection: 'row',
@@ -432,32 +887,114 @@ const createStyles = (colors: any) => StyleSheet.create({
     flex: 1,
     marginLeft: 12,
   },
+  sessionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
   sessionClient: {
     fontFamily: 'Inter-SemiBold',
     fontSize: 14,
     color: colors.text,
+    flex: 1,
+  },
+  sessionStatusBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  sessionStatusText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 10,
+    color: '#FFFFFF',
   },
   sessionType: {
     fontFamily: 'Inter-Regular',
     fontSize: 12,
     color: colors.textSecondary,
-    marginTop: 2,
+    marginBottom: 4,
   },
-  sessionLocation: {
+  sessionMeta: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  sessionMetaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  sessionMetaText: {
     fontFamily: 'Inter-Regular',
     fontSize: 11,
     color: colors.textTertiary,
-    marginTop: 2,
   },
-  sessionAction: {
-    padding: 8,
+  sessionActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  sessionActionButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.surfaceSecondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  completedSessionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderLight,
+  },
+  completedSessionInfo: {
+    flex: 1,
+  },
+  completedSessionClient: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: colors.text,
+    marginBottom: 2,
+  },
+  completedSessionType: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: 2,
+  },
+  completedSessionTime: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 11,
+    color: colors.textTertiary,
+  },
+  completedSessionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: `${colors.success}15`,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  completedSessionText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 11,
+    color: colors.success,
+    marginLeft: 4,
   },
   clientItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: colors.borderLight,
+  },
+  clientLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
   },
   clientAvatar: {
     width: 40,
@@ -480,34 +1017,62 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontFamily: 'Inter-SemiBold',
     fontSize: 14,
     color: colors.text,
+    marginBottom: 2,
   },
   clientEmail: {
     fontFamily: 'Inter-Regular',
     fontSize: 12,
     color: colors.textSecondary,
-    marginTop: 2,
+    marginBottom: 4,
+  },
+  clientStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  clientStat: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 11,
+    color: colors.textTertiary,
+  },
+  streakBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.warning,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  streakText: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 9,
+    color: '#FFFFFF',
+    marginLeft: 2,
   },
   clientActions: {
     flexDirection: 'row',
     gap: 8,
   },
   clientActionButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: colors.surfaceSecondary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   viewAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginTop: 12,
     paddingVertical: 8,
-    alignItems: 'center',
   },
   viewAllText: {
     fontFamily: 'Inter-SemiBold',
     fontSize: 14,
     color: colors.primary,
+    marginRight: 4,
   },
   actionGrid: {
     flexDirection: 'row',
@@ -531,5 +1096,63 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: colors.text,
     marginTop: 8,
     textAlign: 'center',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  modalTitle: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 18,
+    color: colors.text,
+  },
+  modalContent: {
+    flex: 1,
+    padding: 20,
+  },
+  sessionSummary: {
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 20,
+  },
+  sessionSummaryTitle: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: colors.text,
+    marginBottom: 4,
+  },
+  sessionSummaryTime: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  fieldLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 14,
+    color: colors.text,
+    marginBottom: 8,
+  },
+  textArea: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontFamily: 'Inter-Regular',
+    fontSize: 16,
+    color: colors.text,
+    minHeight: 120,
+    textAlignVertical: 'top',
   },
 });

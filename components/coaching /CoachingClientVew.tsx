@@ -196,17 +196,21 @@ export default function CoachingClientView() {
   };
 
   const handleDayPress = (workout: WeeklyWorkout) => {
+    // If there's a specific workout session, navigate to it
     if (workout.template_id) {
+      // Navigate to workout detail with the template ID
       router.push(`/workout-detail/${workout.template_id}`);
     } else if (workout.scheduled) {
-      // If scheduled but no template, show available templates
-      if (workoutTemplates.length > 0) {
-        router.push(`/workout-detail/${workoutTemplates[0].id}`);
-      }
+      // If scheduled but no template, try to start the workout session
+      router.push(`/start-workout/${workout.id}`);
     } else {
-      // Show available templates for rest days
+      // For rest days or days without workouts, show available templates
       if (workoutTemplates.length > 0) {
+        // Navigate to the first available template as a suggestion
         router.push(`/workout-detail/${workoutTemplates[0].id}`);
+      } else {
+        // If no templates available, navigate to templates list
+        router.push('/templates');
       }
     }
   };

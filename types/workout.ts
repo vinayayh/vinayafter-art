@@ -2,29 +2,33 @@ export interface Exercise {
   id: string;
   name: string;
   category: string;
-  muscleGroups: string[];
+  muscle_groups: string[];
   instructions?: string;
   equipment?: string;
+  created_by?: string;
+  is_public: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface WorkoutSet {
-  id: string;
   reps?: number;
   weight?: number;
   duration?: number; // in seconds
   distance?: number; // in meters
-  restTime?: number; // in seconds
-  completed?: boolean;
+  rest_time?: number; // in seconds
   notes?: string;
 }
 
 export interface TemplateExercise {
   id: string;
-  exerciseId: string;
+  template_id: string;
+  exercise_id: string;
   exercise: Exercise;
-  sets: Omit<WorkoutSet, 'completed' | 'id'>[];
-  order: number;
+  order_index: number;
+  sets_config: WorkoutSet[]; // Array of set configurations
   notes?: string;
+  created_at: string;
 }
 
 export interface WorkoutTemplate {
@@ -32,39 +36,77 @@ export interface WorkoutTemplate {
   name: string;
   description?: string;
   category: string;
-  duration: number; // estimated duration in minutes
+  estimated_duration_minutes: number;
+  created_by: string;
+  is_public: boolean;
+  created_at: string;
+  updated_at: string;
   exercises: TemplateExercise[];
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-  isPublic: boolean;
 }
 
 export interface WorkoutPlan {
   id: string;
-  clientId: string;
-  trainerId: string;
+  client_id: string;
+  trainer_id: string;
   name: string;
-  startDate: string;
-  endDate: string;
-  schedule: {
-    [key: string]: string | null; // day of week -> templateId
-  };
-  createdAt: string;
-  updatedAt: string;
+  description?: string;
+  start_date: string;
+  end_date: string;
+  schedule_type: 'weekly' | 'monthly' | 'custom';
+  schedule_data: any; // Flexible schedule configuration
+  status: 'draft' | 'active' | 'completed' | 'cancelled';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlanSession {
+  id: string;
+  plan_id: string;
+  template_id?: string;
+  scheduled_date: string;
+  scheduled_time?: string;
+  day_of_week?: string;
+  week_number?: number;
+  status: 'scheduled' | 'completed' | 'skipped' | 'cancelled';
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TrainingSession {
+  id: string;
+  client_id: string;
+  trainer_id: string;
+  template_id?: string;
+  plan_id?: string;
+  scheduled_date: string;
+  scheduled_time: string;
+  duration_minutes: number;
+  type: string;
+  status: 'scheduled' | 'completed' | 'cancelled' | 'no_show';
+  location?: string;
+  notes?: string;
+  trainer_notes?: string;
+  client_feedback?: string;
+  session_rating?: number;
+  exercises_completed?: any[];
+  session_data: any; // Store workout details during session
+  completion_data: any; // Store results after completion
+  created_at: string;
+  updated_at: string;
 }
 
 export interface WorkoutSession {
   id: string;
-  clientId: string;
-  templateId: string;
-  planId?: string;
+  client_id: string;
+  template_id?: string;
+  plan_id?: string;
   date: string;
-  startTime?: string;
-  endTime?: string;
+  start_time?: string;
+  end_time?: string;
   exercises: {
-    exerciseId: string;
-    sets: WorkoutSet[];
+    exercise_id: string;
+    sets: (WorkoutSet & { completed?: boolean; id?: string })[];
     notes?: string;
   }[];
   notes?: string;
@@ -82,3 +124,35 @@ export interface Client {
 }
 
 export type DayOfWeek = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday';
+
+export interface ClientProgress {
+  id: string;
+  client_id: string;
+  trainer_id: string;
+  date: string;
+  weight_kg?: number;
+  body_fat_percentage?: number;
+  muscle_mass_kg?: number;
+  measurements: any; // Store various body measurements
+  photos?: string[]; // Array of photo URLs
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClientGoal {
+  id: string;
+  client_id: string;
+  trainer_id?: string;
+  title: string;
+  description?: string;
+  category?: string;
+  target_value?: number;
+  target_unit?: string;
+  current_value: number;
+  target_date?: string;
+  priority: 'low' | 'medium' | 'high';
+  status: 'active' | 'completed' | 'paused' | 'cancelled';
+  created_at: string;
+  updated_at: string;
+}

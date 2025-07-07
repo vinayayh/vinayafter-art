@@ -8,23 +8,48 @@ import {
   Alert,
   Platform,
   Animated,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Menu, RotateCcw, Clock, CircleCheck as CheckCircle, CircleAlert as AlertCircle, Undo2 } from 'lucide-react-native';
+import { 
+  ArrowLeft, 
+  Menu, 
+  RotateCcw, 
+  Clock, 
+  CheckCircle, 
+  AlertCircle, 
+  Undo2,
+  Calendar,
+  Play,
+  Dumbbell,
+  Target,
+  TrendingUp,
+  ChevronRight
+} from 'lucide-react-native';
 import { useColorScheme, getColors } from '@/hooks/useColorScheme';
 import { router } from 'expo-router';
-import { WorkoutPlan, WorkoutTemplate, DayOfWeek } from '@/types/workout';
-import { getClientPlans, getTemplate, savePlan } from '@/utils/storage';
-import { getWeekDates } from '@/utils/workoutUtils';
+import { supabase } from '@/lib/supabase';
 
-interface WeeklyWorkout {
+interface WorkoutSession {
+  id: string;
   date: string;
   dayName: string;
   dayNumber: number;
   dayShort: string;
-  template: WorkoutTemplate | null;
-  templateId: string | null;
+  template_id: string | null;
+  trainer_id: string | null;
   status: 'completed' | 'missed' | 'scheduled' | 'rest';
+  duration_minutes: number | null;
+  exercises: any[];
+  notes: string | null;
+  completed: boolean;
+}
+
+interface WeeklyStats {
+  totalWorkouts: number;
+  completedWorkouts: number;
+  totalDuration: number;
+  completionRate: number;
 }
 
 export default function TrainingCalendarScreen() {
@@ -32,16 +57,23 @@ export default function TrainingCalendarScreen() {
   const colors = getColors(colorScheme);
   const styles = createStyles(colors);
 
-  const [weeklyWorkouts, setWeeklyWorkouts] = useState<WeeklyWorkout[]>([]);
-  const [currentPlan, setCurrentPlan] = useState<WorkoutPlan | null>(null);
+  const [weeklyWorkouts, setWeeklyWorkouts] = useState<WorkoutSession[]>([]);
+  const [weeklyStats, setWeeklyStats] = useState<WeeklyStats>({
+    totalWorkouts: 0,
+    completedWorkouts: 0,
+    totalDuration: 0,
+    completionRate: 0
+  });
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedItem, setSelectedItem] = useState<number | null>(null);
   const [isRearrangeMode, setIsRearrangeMode] = useState(false);
   const [animatedValue] = useState(new Animated.Value(0));
+  const [currentWeekStart, setCurrentWeekStart] = useState(new Date());
 
   useEffect(() => {
     loadWeeklySchedule();
-  }, []);
+  }, [currentWeekStart]);
 
   useEffect(() => {
     Animated.timing(animatedValue, {
@@ -51,68 +83,108 @@ export default function TrainingCalendarScreen() {
     }).start();
   }, [isRearrangeMode]);
 
+  const getCurrentUserProfile = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+
+      if (error) {
+        console.error('Error fetching profile:', error);
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Error in getCurrentUserProfile:', error);
+      return null;
+    }
+  };
+
+  const getWeekDates = (startDate: Date) => {
+    const week = [];
+    const monday = new Date(startDate);
+    const dayOfWeek = startDate.getDay();
+    const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    monday.setDate(startDate.getDate() + diff);
+
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(monday);
+      date.setDate(monday.getDate() + i);
+      week.push(date);
+    }
+
+    return week;
+  };
+
   const loadWeeklySchedule = async () => {
     try {
-      const clientId = 'client-1'; // TODO: Get from user context
-      const plans = await getClientPlans(clientId);
-      
-      // Find active plan for this week
-      const today = new Date();
-      const todayString = today.toISOString().split('T')[0];
-      const activePlan = plans.find(plan => 
-        plan.startDate <= todayString && plan.endDate >= todayString
-      );
-
-      if (activePlan) {
-        setCurrentPlan(activePlan);
-        
-        // Generate this week's schedule
-        const weekDates = getWeekDates(today);
-        const weeklySchedule: WeeklyWorkout[] = [];
-        
-        const dayNames: DayOfWeek[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-        const shortDayNames = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-        
-        for (let i = 0; i < 7; i++) {
-          const dayName = dayNames[i];
-          const date = weekDates[dayName];
-          const dayNumber = new Date(date).getDate();
-          const templateId = activePlan.schedule[dayName];
-          
-          let template = null;
-          if (templateId) {
-            template = await getTemplate(templateId);
-          }
-          
-          // Determine status
-          const isToday = date === todayString;
-          const isPast = new Date(date) < new Date(todayString);
-          let status: 'completed' | 'missed' | 'scheduled' | 'rest' = 'rest';
-          
-          if (templateId) {
-            if (isPast) {
-              // For demo purposes, randomly assign completed/missed
-              status = Math.random() > 0.3 ? 'completed' : 'missed';
-            } else if (isToday) {
-              status = 'scheduled';
-            } else {
-              status = 'scheduled';
-            }
-          }
-          
-          weeklySchedule.push({
-            date,
-            dayName: shortDayNames[i],
-            dayNumber,
-            dayShort: dayName.substring(0, 3).toUpperCase(),
-            template,
-            templateId,
-            status
-          });
-        }
-        
-        setWeeklyWorkouts(weeklySchedule);
+      setLoading(true);
+      const profile = await getCurrentUserProfile();
+      if (!profile) {
+        setLoading(false);
+        return;
       }
+
+      const weekDates = getWeekDates(currentWeekStart);
+      const startDate = weekDates[0].toISOString().split('T')[0];
+      const endDate = weekDates[6].toISOString().split('T')[0];
+
+      // Fetch workout sessions for the week
+      const { data: sessions, error } = await supabase
+        .from('workout_sessions')
+        .select('*')
+        .eq('client_id', profile.id)
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .order('date', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching workout sessions:', error);
+        setLoading(false);
+        return;
+      }
+
+      // Create weekly schedule
+      const weeklySchedule: WorkoutSession[] = [];
+      const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const dayShortNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+
+      weekDates.forEach((date, index) => {
+        const dateString = date.toISOString().split('T')[0];
+        const session = sessions?.find(s => s.date === dateString);
+        
+        const workoutSession: WorkoutSession = {
+          id: session?.id || `${dateString}-${index}`,
+          date: dateString,
+          dayName: dayNames[index],
+          dayNumber: date.getDate(),
+          dayShort: dayShortNames[index],
+          template_id: session?.template_id || null,
+          trainer_id: session?.trainer_id || null,
+          status: session ? (session.completed ? 'completed' : 'scheduled') : 'rest',
+          duration_minutes: session?.duration_minutes || null,
+          exercises: session?.exercises || [],
+          notes: session?.notes || null,
+          completed: session?.completed || false
+        };
+
+        // Determine if missed (past date, scheduled but not completed)
+        const today = new Date().toISOString().split('T')[0];
+        if (dateString < today && session && !session.completed) {
+          workoutSession.status = 'missed';
+        }
+
+        weeklySchedule.push(workoutSession);
+      });
+
+      setWeeklyWorkouts(weeklySchedule);
+      calculateWeeklyStats(weeklySchedule);
     } catch (error) {
       console.error('Error loading weekly schedule:', error);
     } finally {
@@ -120,82 +192,51 @@ export default function TrainingCalendarScreen() {
     }
   };
 
+  const calculateWeeklyStats = (workouts: WorkoutSession[]) => {
+    const totalWorkouts = workouts.filter(w => w.template_id !== null).length;
+    const completedWorkouts = workouts.filter(w => w.status === 'completed').length;
+    const totalDuration = workouts
+      .filter(w => w.status === 'completed')
+      .reduce((sum, w) => sum + (w.duration_minutes || 0), 0);
+    const completionRate = totalWorkouts > 0 ? (completedWorkouts / totalWorkouts) * 100 : 0;
+
+    setWeeklyStats({
+      totalWorkouts,
+      completedWorkouts,
+      totalDuration,
+      completionRate
+    });
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadWeeklySchedule();
+    setRefreshing(false);
+  };
+
   const handleRearrangeToggle = () => {
-    if (isRearrangeMode) {
-      // Save changes when exiting rearrange mode
-      saveScheduleChanges();
-    }
     setIsRearrangeMode(!isRearrangeMode);
     setSelectedItem(null);
   };
 
-  const saveScheduleChanges = async () => {
-    if (!currentPlan) return;
-
-    try {
-      const updatedSchedule: { [key: string]: string | null } = {};
-      const dayNames: DayOfWeek[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-      
-      weeklyWorkouts.forEach((workout, index) => {
-        const dayName = dayNames[index];
-        updatedSchedule[dayName] = workout.templateId;
-      });
-
-      const updatedPlan: WorkoutPlan = {
-        ...currentPlan,
-        schedule: updatedSchedule,
-        updatedAt: new Date().toISOString(),
-      };
-
-      await savePlan(updatedPlan);
-      setCurrentPlan(updatedPlan);
-      
-      if (Platform.OS !== 'web') {
-        // Add haptic feedback on mobile
-        // Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-      
-      Alert.alert('Success', 'Schedule updated successfully!');
-    } catch (error) {
-      console.error('Error saving schedule:', error);
-      Alert.alert('Error', 'Failed to save schedule changes');
-    }
-  };
-
-  const handleWorkoutPress = (workout: WeeklyWorkout, index: number) => {
+  const handleWorkoutPress = (workout: WorkoutSession, index: number) => {
     if (isRearrangeMode) {
       if (selectedItem === null) {
         setSelectedItem(index);
       } else if (selectedItem === index) {
         setSelectedItem(null);
       } else {
-        // Swap workouts
-        const newWorkouts = [...weeklyWorkouts];
-        const selectedWorkout = newWorkouts[selectedItem];
-        const targetWorkout = newWorkouts[index];
-        
-        // Swap the template IDs and templates
-        newWorkouts[selectedItem] = {
-          ...selectedWorkout,
-          template: targetWorkout.template,
-          templateId: targetWorkout.templateId,
-          status: targetWorkout.templateId ? selectedWorkout.status : 'rest'
-        };
-        
-        newWorkouts[index] = {
-          ...targetWorkout,
-          template: selectedWorkout.template,
-          templateId: selectedWorkout.templateId,
-          status: selectedWorkout.templateId ? targetWorkout.status : 'rest'
-        };
-        
-        setWeeklyWorkouts(newWorkouts);
+        // Swap workouts logic would go here
         setSelectedItem(null);
       }
     } else {
-      // Navigate to workout details
-      if (workout.template) {
-        router.push(`/training-day/${workout.date}?templateId=${workout.template.id}`);
+      // Navigate to workout details or start workout
+      if (workout.template_id) {
+        if (workout.status === 'scheduled') {
+          router.push(`/start-workout/${workout.id}`);
+        } else {
+          router.push(`/workout-detail/${workout.template_id}`);
+        }
       }
     }
   };
@@ -213,23 +254,41 @@ export default function TrainingCalendarScreen() {
     }
   };
 
-  const getWorkoutStatusText = (workout: WeeklyWorkout) => {
-    if (!workout.template) return '';
+  const navigateWeek = (direction: 'prev' | 'next') => {
+    const newDate = new Date(currentWeekStart);
+    newDate.setDate(newDate.getDate() + (direction === 'next' ? 7 : -7));
+    setCurrentWeekStart(newDate);
+  };
+
+  const getWeekRange = () => {
+    const weekDates = getWeekDates(currentWeekStart);
+    const start = weekDates[0];
+    const end = weekDates[6];
     
-    switch (workout.status) {
-      case 'completed':
-        return `${workout.template.exercises.length} exercises`;
-      case 'missed':
-        return `Missed • ${workout.template.exercises.length} exercises`;
-      case 'scheduled':
-        return `${workout.template.exercises.length} exercises`;
-      default:
-        return '';
+    if (start.getMonth() === end.getMonth()) {
+      return `${start.toLocaleDateString('en-US', { month: 'short' })} ${start.getDate()}-${end.getDate()}`;
+    } else {
+      return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
     }
   };
 
   const renderCalendarHeader = () => (
     <View style={styles.calendarHeader}>
+      <View style={styles.weekNavigation}>
+        <TouchableOpacity onPress={() => navigateWeek('prev')} style={styles.navButton}>
+          <ArrowLeft size={20} color={colors.textSecondary} />
+        </TouchableOpacity>
+        
+        <View style={styles.weekInfo}>
+          <Text style={styles.weekRange}>{getWeekRange()}</Text>
+          <Text style={styles.weekYear}>{currentWeekStart.getFullYear()}</Text>
+        </View>
+        
+        <TouchableOpacity onPress={() => navigateWeek('next')} style={styles.navButton}>
+          <ChevronRight size={20} color={colors.textSecondary} />
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.weekContainer}>
         {weeklyWorkouts.map((workout, index) => (
           <View key={index} style={styles.dayHeaderContainer}>
@@ -237,7 +296,7 @@ export default function TrainingCalendarScreen() {
             <TouchableOpacity
               style={[
                 styles.dayHeaderCircle,
-                workout.template && styles.activeDayHeaderCircle,
+                workout.template_id && styles.activeDayHeaderCircle,
                 workout.status === 'completed' && styles.completedDayHeaderCircle,
                 workout.status === 'missed' && styles.missedDayHeaderCircle
               ]}
@@ -246,7 +305,7 @@ export default function TrainingCalendarScreen() {
             >
               <Text style={[
                 styles.dayHeaderNumber,
-                workout.template && styles.activeDayHeaderNumber,
+                workout.template_id && styles.activeDayHeaderNumber,
                 (workout.status === 'completed' || workout.status === 'missed') && styles.statusDayHeaderNumber
               ]}>
                 {workout.dayNumber}
@@ -258,7 +317,35 @@ export default function TrainingCalendarScreen() {
     </View>
   );
 
-  const renderWorkoutItem = (workout: WeeklyWorkout, index: number) => {
+  const renderWeeklyStats = () => (
+    <View style={styles.statsContainer}>
+      <View style={styles.statCard}>
+        <View style={styles.statIcon}>
+          <Dumbbell size={20} color={colors.primary} />
+        </View>
+        <Text style={styles.statNumber}>{weeklyStats.completedWorkouts}</Text>
+        <Text style={styles.statLabel}>Completed</Text>
+      </View>
+      
+      <View style={styles.statCard}>
+        <View style={styles.statIcon}>
+          <Target size={20} color={colors.success} />
+        </View>
+        <Text style={styles.statNumber}>{Math.round(weeklyStats.completionRate)}%</Text>
+        <Text style={styles.statLabel}>Success Rate</Text>
+      </View>
+      
+      <View style={styles.statCard}>
+        <View style={styles.statIcon}>
+          <Clock size={20} color={colors.warning} />
+        </View>
+        <Text style={styles.statNumber}>{weeklyStats.totalDuration}</Text>
+        <Text style={styles.statLabel}>Minutes</Text>
+      </View>
+    </View>
+  );
+
+  const renderWorkoutItem = (workout: WorkoutSession, index: number) => {
     const isSelected = selectedItem === index;
     
     return (
@@ -280,7 +367,7 @@ export default function TrainingCalendarScreen() {
           style={[
             styles.workoutItem,
             isSelected && styles.selectedWorkoutItem,
-            !workout.template && styles.restDayItem,
+            !workout.template_id && styles.restDayItem,
             workout.status === 'missed' && styles.missedWorkoutItem
           ]}
           onPress={() => handleWorkoutPress(workout, index)}
@@ -297,9 +384,9 @@ export default function TrainingCalendarScreen() {
                 styles.workoutName,
                 workout.status === 'missed' && styles.missedWorkoutName
               ]}>
-                {workout.template?.name || 'Rest Day'}
+                {workout.template_id ? 'Workout Scheduled' : 'Rest Day'}
               </Text>
-              {workout.template && (
+              {workout.template_id && (
                 <View style={styles.workoutStatusContainer}>
                   {getStatusIcon(workout.status)}
                   <Text style={[
@@ -307,18 +394,33 @@ export default function TrainingCalendarScreen() {
                     workout.status === 'missed' && styles.missedWorkoutStatus,
                     workout.status === 'completed' && styles.completedWorkoutStatus
                   ]}>
-                    {getWorkoutStatusText(workout)}
+                    {workout.status === 'completed' && `${workout.duration_minutes || 0} min completed`}
+                    {workout.status === 'scheduled' && 'Ready to start'}
+                    {workout.status === 'missed' && 'Missed workout'}
                   </Text>
                 </View>
+              )}
+              {workout.notes && (
+                <Text style={styles.workoutNotes}>{workout.notes}</Text>
               )}
             </View>
           </View>
           
-          {isRearrangeMode && (
-            <View style={styles.dragHandle}>
-              <Menu size={20} color={colors.textTertiary} />
-            </View>
-          )}
+          <View style={styles.workoutItemRight}>
+            {workout.status === 'scheduled' && (
+              <TouchableOpacity 
+                style={styles.playButton}
+                onPress={() => router.push(`/start-workout/${workout.id}`)}
+              >
+                <Play size={16} color="#FFFFFF" />
+              </TouchableOpacity>
+            )}
+            {isRearrangeMode && (
+              <View style={styles.dragHandle}>
+                <Menu size={20} color={colors.textTertiary} />
+              </View>
+            )}
+          </View>
         </TouchableOpacity>
       </Animated.View>
     );
@@ -343,7 +445,7 @@ export default function TrainingCalendarScreen() {
         </TouchableOpacity>
         
         <Text style={styles.headerTitle}>
-          {isRearrangeMode ? 'Rearrange' : 'Training'}
+          {isRearrangeMode ? 'Rearrange' : 'Training Calendar'}
         </Text>
         
         <TouchableOpacity onPress={handleRearrangeToggle} style={styles.rearrangeButton}>
@@ -355,12 +457,22 @@ export default function TrainingCalendarScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.content} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        }
+      >
         {/* Calendar Header */}
         {!isRearrangeMode && renderCalendarHeader()}
 
+        {/* Weekly Stats */}
+        {!isRearrangeMode && renderWeeklyStats()}
+
         {/* Workout List */}
         <View style={styles.workoutsList}>
+          <Text style={styles.sectionTitle}>This Week's Schedule</Text>
           {weeklyWorkouts.map((workout, index) => renderWorkoutItem(workout, index))}
         </View>
 
@@ -434,6 +546,33 @@ const createStyles = (colors: any) => StyleSheet.create({
     backgroundColor: colors.surface,
     marginBottom: 8,
   },
+  weekNavigation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  navButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.surfaceSecondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  weekInfo: {
+    alignItems: 'center',
+  },
+  weekRange: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 18,
+    color: colors.text,
+  },
+  weekYear: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
   weekContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -483,6 +622,51 @@ const createStyles = (colors: any) => StyleSheet.create({
   statusDayHeaderNumber: {
     color: '#FFFFFF',
   },
+  statsContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    marginBottom: 16,
+    gap: 12,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  statIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.surfaceSecondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  statNumber: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 18,
+    color: colors.text,
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 12,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  sectionTitle: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 18,
+    color: colors.text,
+    marginBottom: 16,
+  },
   workoutsList: {
     paddingHorizontal: 20,
     paddingTop: 8,
@@ -523,6 +707,11 @@ const createStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
     flex: 1,
   },
+  workoutItemRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   workoutDateContainer: {
     alignItems: 'center',
     marginRight: 20,
@@ -546,7 +735,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   workoutName: {
     fontFamily: 'Inter-SemiBold',
-    fontSize: 18,
+    fontSize: 16,
     color: colors.text,
     marginBottom: 6,
   },
@@ -556,6 +745,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   workoutStatusContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 4,
   },
   workoutStatus: {
     fontFamily: 'Inter-Regular',
@@ -568,6 +758,20 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   completedWorkoutStatus: {
     color: colors.success,
+  },
+  workoutNotes: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: colors.textTertiary,
+    fontStyle: 'italic',
+  },
+  playButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   dragHandle: {
     padding: 8,

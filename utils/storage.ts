@@ -219,6 +219,239 @@ export const initializeDefaultData = async (): Promise<void> => {
     await saveExercises(defaultExercises);
   }
 
+  // Initialize default workout templates
+  const templates = await getTemplates();
+  if (templates.length === 0) {
+    const defaultTemplates: WorkoutTemplate[] = [
+      {
+        id: 'template-1',
+        name: 'Upper Body Strength',
+        description: 'Focus on building upper body strength with compound movements',
+        category: 'Strength',
+        duration: 60,
+        exercises: [
+          {
+            id: 'ex-1',
+            exerciseId: '3',
+            exercise: {
+              id: '3',
+              name: 'Bench Press',
+              category: 'Strength',
+              muscleGroups: ['Chest', 'Shoulders', 'Triceps'],
+              instructions: 'Lie on bench, lower bar to chest, press up',
+              equipment: 'Barbell, Bench'
+            },
+            sets: [
+              { reps: 8, weight: 135, restTime: 120 },
+              { reps: 8, weight: 135, restTime: 120 },
+              { reps: 8, weight: 135, restTime: 120 }
+            ],
+            order: 1,
+            notes: 'Focus on controlled movement'
+          },
+          {
+            id: 'ex-2',
+            exerciseId: '5',
+            exercise: {
+              id: '5',
+              name: 'Pull-ups',
+              category: 'Bodyweight',
+              muscleGroups: ['Back', 'Biceps'],
+              instructions: 'Hang from bar, pull body up until chin over bar',
+              equipment: 'Pull-up bar'
+            },
+            sets: [
+              { reps: 8, restTime: 90 },
+              { reps: 8, restTime: 90 },
+              { reps: 8, restTime: 90 }
+            ],
+            order: 2,
+            notes: 'Use assistance if needed'
+          }
+        ],
+        createdBy: 'trainer-1',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        isPublic: true
+      },
+      {
+        id: 'template-2',
+        name: 'Lower Body Power',
+        description: 'Build explosive lower body strength and power',
+        category: 'Strength',
+        duration: 45,
+        exercises: [
+          {
+            id: 'ex-3',
+            exerciseId: '2',
+            exercise: {
+              id: '2',
+              name: 'Squats',
+              category: 'Bodyweight',
+              muscleGroups: ['Quadriceps', 'Glutes', 'Hamstrings'],
+              instructions: 'Stand with feet shoulder-width apart, lower hips back and down',
+              equipment: 'None'
+            },
+            sets: [
+              { reps: 12, weight: 185, restTime: 120 },
+              { reps: 10, weight: 205, restTime: 120 },
+              { reps: 8, weight: 225, restTime: 120 }
+            ],
+            order: 1,
+            notes: 'Progressive overload'
+          },
+          {
+            id: 'ex-4',
+            exerciseId: '4',
+            exercise: {
+              id: '4',
+              name: 'Deadlift',
+              category: 'Strength',
+              muscleGroups: ['Hamstrings', 'Glutes', 'Back'],
+              instructions: 'Stand with feet hip-width apart, lift bar from ground',
+              equipment: 'Barbell'
+            },
+            sets: [
+              { reps: 5, weight: 275, restTime: 180 },
+              { reps: 5, weight: 275, restTime: 180 },
+              { reps: 5, weight: 275, restTime: 180 }
+            ],
+            order: 2,
+            notes: 'Focus on form over weight'
+          }
+        ],
+        createdBy: 'trainer-1',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        isPublic: true
+      },
+      {
+        id: 'template-3',
+        name: 'HIIT Cardio Blast',
+        description: 'High-intensity interval training for cardiovascular fitness',
+        category: 'Cardio',
+        duration: 30,
+        exercises: [
+          {
+            id: 'ex-5',
+            exerciseId: '1',
+            exercise: {
+              id: '1',
+              name: 'Push-ups',
+              category: 'Bodyweight',
+              muscleGroups: ['Chest', 'Shoulders', 'Triceps'],
+              instructions: 'Start in plank position, lower body to ground, push back up',
+              equipment: 'None'
+            },
+            sets: [
+              { reps: 15, restTime: 30 },
+              { reps: 15, restTime: 30 },
+              { reps: 15, restTime: 30 },
+              { reps: 15, restTime: 30 }
+            ],
+            order: 1,
+            notes: 'High intensity, short rest'
+          },
+          {
+            id: 'ex-6',
+            exerciseId: '2',
+            exercise: {
+              id: '2',
+              name: 'Squats',
+              category: 'Bodyweight',
+              muscleGroups: ['Quadriceps', 'Glutes', 'Hamstrings'],
+              instructions: 'Stand with feet shoulder-width apart, lower hips back and down',
+              equipment: 'None'
+            },
+            sets: [
+              { reps: 20, restTime: 30 },
+              { reps: 20, restTime: 30 },
+              { reps: 20, restTime: 30 },
+              { reps: 20, restTime: 30 }
+            ],
+            order: 2,
+            notes: 'Explosive movement'
+          }
+        ],
+        createdBy: 'trainer-1',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        isPublic: true
+      },
+      {
+        id: 'template-4',
+        name: 'Full Body Functional',
+        description: 'Functional movements for everyday strength',
+        category: 'Functional',
+        duration: 50,
+        exercises: [
+          {
+            id: 'ex-7',
+            exerciseId: '1',
+            exercise: {
+              id: '1',
+              name: 'Push-ups',
+              category: 'Bodyweight',
+              muscleGroups: ['Chest', 'Shoulders', 'Triceps'],
+              instructions: 'Start in plank position, lower body to ground, push back up',
+              equipment: 'None'
+            },
+            sets: [
+              { reps: 12, restTime: 60 },
+              { reps: 12, restTime: 60 },
+              { reps: 12, restTime: 60 }
+            ],
+            order: 1,
+            notes: 'Maintain proper form'
+          },
+          {
+            id: 'ex-8',
+            exerciseId: '2',
+            exercise: {
+              id: '2',
+              name: 'Squats',
+              category: 'Bodyweight',
+              muscleGroups: ['Quadriceps', 'Glutes', 'Hamstrings'],
+              instructions: 'Stand with feet shoulder-width apart, lower hips back and down',
+              equipment: 'None'
+            },
+            sets: [
+              { reps: 15, restTime: 60 },
+              { reps: 15, restTime: 60 },
+              { reps: 15, restTime: 60 }
+            ],
+            order: 2,
+            notes: 'Full range of motion'
+          },
+          {
+            id: 'ex-9',
+            exerciseId: '5',
+            exercise: {
+              id: '5',
+              name: 'Pull-ups',
+              category: 'Bodyweight',
+              muscleGroups: ['Back', 'Biceps'],
+              instructions: 'Hang from bar, pull body up until chin over bar',
+              equipment: 'Pull-up bar'
+            },
+            sets: [
+              { reps: 6, restTime: 90 },
+              { reps: 6, restTime: 90 },
+              { reps: 6, restTime: 90 }
+            ],
+            order: 3,
+            notes: 'Assisted if necessary'
+          }
+        ],
+        createdBy: 'trainer-1',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        isPublic: true
+      }
+    ];
+    await storeData(STORAGE_KEYS.TEMPLATES, defaultTemplates);
+  }
+
   // Initialize sample clients for trainers
   const clients = await getClients();
   if (clients.length === 0) {

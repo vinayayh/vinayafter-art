@@ -27,6 +27,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColorScheme, getColors } from '../../hooks/useColorScheme';
 import { router } from 'expo-router';
 import { useTodayDataNew } from '../../hooks/useTodayDataNew';
+import { getWorkoutTemplates, initializeDefaultTemplates, WorkoutTemplate } from '../../lib/workoutTemplates';
 
 const { width } = Dimensions.get('window');
 
@@ -38,10 +39,29 @@ export default function CoachingClientView() {
 
   const [selectedTab, setSelectedTab] = useState('workouts');
   const [refreshing, setRefreshing] = useState(false);
+  const [workoutTemplates, setWorkoutTemplates] = useState<WorkoutTemplate[]>([]);
+
+  useEffect(() => {
+    loadWorkoutTemplates();
+  }, []);
+
+  const loadWorkoutTemplates = async () => {
+    try {
+      // Initialize default templates if none exist
+      await initializeDefaultTemplates();
+      
+      // Load templates from database
+      const templates = await getWorkoutTemplates();
+      setWorkoutTemplates(templates);
+    } catch (error) {
+      console.error('Error loading workout templates:', error);
+    }
+  };
 
   const handleRefresh = async () => {
     setRefreshing(true);
     await refreshData();
+    await loadWorkoutTemplates();
     setRefreshing(false);
   };
 
@@ -50,8 +70,13 @@ export default function CoachingClientView() {
   };
 
   const handleDayPress = (workout: any) => {
-    if (workout.template) {
-      router.push(`/workout-detail/${workout.template.id}`);
+    // Find a template to show - use the first available template
+    if (workoutTemplates.length > 0) {
+      const template = workoutTemplates[0]; // Use first template as default
+      router.push(`/workout-detail/${template.id}`);
+    } else {
+      // If no templates available, create a mock one
+      router.push('/workout-detail/template-1');
     }
   };
 
@@ -73,13 +98,37 @@ export default function CoachingClientView() {
     }
   };
 
-  // Mock weekly workouts data - you can replace this with real data from your database
+  // Mock weekly workouts data with template references
   const weeklyWorkouts = [
-    { dayName: 'M', dayNumber: 6, template: { id: '1', name: 'Upper Body' }, completed: true, missed: false },
-    { dayName: 'T', dayNumber: 7, template: { id: '2', name: 'Cardio' }, completed: false, missed: false },
+    { 
+      dayName: 'M', 
+      dayNumber: 6, 
+      template: workoutTemplates[0] || { id: 'template-1', name: 'Upper Body' }, 
+      completed: true, 
+      missed: false 
+    },
+    { 
+      dayName: 'T', 
+      dayNumber: 7, 
+      template: workoutTemplates[1] || { id: 'template-2', name: 'Cardio' }, 
+      completed: false, 
+      missed: false 
+    },
     { dayName: 'W', dayNumber: 8, template: null, completed: false, missed: false },
-    { dayName: 'T', dayNumber: 9, template: { id: '3', name: 'Lower Body' }, completed: false, missed: false },
-    { dayName: 'F', dayNumber: 10, template: { id: '4', name: 'HIIT' }, completed: false, missed: false },
+    { 
+      dayName: 'T', 
+      dayNumber: 9, 
+      template: workoutTemplates[2] || { id: 'template-3', name: 'Lower Body' }, 
+      completed: false, 
+      missed: false 
+    },
+    { 
+      dayName: 'F', 
+      dayNumber: 10, 
+      template: workoutTemplates[3] || { id: 'template-4', name: 'HIIT' }, 
+      completed: false, 
+      missed: false 
+    },
     { dayName: 'S', dayNumber: 11, template: null, completed: false, missed: false },
     { dayName: 'S', dayNumber: 12, template: null, completed: false, missed: false },
   ];

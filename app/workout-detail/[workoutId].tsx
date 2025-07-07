@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -25,12 +24,13 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useColorScheme, getColors } from '@/hooks/useColorScheme';
 import { router, useLocalSearchParams } from 'expo-router';
-import { WorkoutTemplate, Exercise } from '@/types/workout';
-import { getTemplate } from '@/utils/storage';
+import { getWorkoutTemplate, WorkoutTemplate } from '@/lib/workoutTemplates';
 
 const { width, height } = Dimensions.get('window');
 
-interface ExerciseWithDetails extends Exercise {
+interface ExerciseWithDetails {
+  id: string;
+  name: string;
   sets: number;
   reps: string;
   image: string;
@@ -53,22 +53,32 @@ export default function WorkoutDetailScreen() {
 
   const loadWorkoutDetails = async () => {
     try {
-      const workoutTemplate = await getTemplate(workoutId as string);
+      setLoading(true);
+      const workoutTemplate = await getWorkoutTemplate(workoutId as string);
+      
       if (workoutTemplate) {
         setWorkout(workoutTemplate);
         
         // Transform exercises with additional details
-        const exercisesWithDetails: ExerciseWithDetails[] = workoutTemplate.exercises.map((templateExercise, index) => ({
-          ...templateExercise.exercise,
-          sets: templateExercise.sets.length,
-          reps: templateExercise.sets.map(set => set.reps).join(', '),
-          image: getExerciseImage(templateExercise.exercise.name, index),
+        const exercisesWithDetails: ExerciseWithDetails[] = workoutTemplate.exercises.map((exercise, index) => ({
+          id: exercise.id || `exercise-${index}`,
+          name: exercise.name,
+          sets: exercise.sets?.length || 0,
+          reps: exercise.sets?.map(set => set.reps).join(', ') || '',
+          image: getExerciseImage(exercise.name, index),
         }));
         
         setExercises(exercisesWithDetails);
+      } else {
+        Alert.alert('Error', 'Workout template not found', [
+          { text: 'OK', onPress: () => router.back() }
+        ]);
       }
     } catch (error) {
       console.error('Error loading workout details:', error);
+      Alert.alert('Error', 'Failed to load workout details', [
+        { text: 'OK', onPress: () => router.back() }
+      ]);
     } finally {
       setLoading(false);
     }
@@ -114,7 +124,7 @@ export default function WorkoutDetailScreen() {
       <View style={styles.exerciseInfo}>
         <Text style={styles.exerciseName}>{exercise.name}</Text>
         <Text style={styles.exerciseDetails}>
-          {exercise.reps} reps, {exercise.sets} reps, {exercise.reps} reps, {exercise.reps}...
+          {exercise.reps ? `${exercise.reps} reps` : 'Custom reps'} • {exercise.sets} sets
         </Text>
       </View>
       
@@ -148,6 +158,9 @@ export default function WorkoutDetailScreen() {
       <SafeAreaView style={styles.container}>
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>Workout not found</Text>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+            <Text style={styles.backButtonText}>Go Back</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -185,8 +198,9 @@ export default function WorkoutDetailScreen() {
 
             {/* Workout Info */}
             <View style={styles.heroInfo}>
-              <Text style={styles.heroDate}>MONDAY, JUN 23</Text>
+              <Text style={styles.heroDate}>TODAY'S WORKOUT</Text>
               <Text style={styles.heroTitle}>{workout.name}</Text>
+              <Text style={styles.heroDescription}>{workout.description}</Text>
               <TouchableOpacity style={styles.startWorkoutButton} onPress={handleStartWorkout}>
                 <Text style={styles.startWorkoutText}>Start Workout</Text>
               </TouchableOpacity>
@@ -196,6 +210,28 @@ export default function WorkoutDetailScreen() {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Workout Info */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Workout Details</Text>
+          <View style={styles.workoutInfoGrid}>
+            <View style={styles.workoutInfoItem}>
+              <Clock size={20} color={colors.primary} />
+              <Text style={styles.workoutInfoLabel}>Duration</Text>
+              <Text style={styles.workoutInfoValue}>{workout.duration} min</Text>
+            </View>
+            <View style={styles.workoutInfoItem}>
+              <Dumbbell size={20} color={colors.success} />
+              <Text style={styles.workoutInfoLabel}>Exercises</Text>
+              <Text style={styles.workoutInfoValue}>{exercises.length}</Text>
+            </View>
+            <View style={styles.workoutInfoItem}>
+              <Target size={20} color={colors.warning} />
+              <Text style={styles.workoutInfoLabel}>Category</Text>
+              <Text style={styles.workoutInfoValue}>{workout.category}</Text>
+            </View>
+          </View>
+        </View>
+
         {/* Equipment Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Equipment</Text>
@@ -206,7 +242,7 @@ export default function WorkoutDetailScreen() {
 
         {/* Warm Up Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>PHYSIQUE Dynamic Warm Up</Text>
+          <Text style={styles.sectionTitle}>Dynamic Warm Up</Text>
           <TouchableOpacity style={styles.warmUpItem}>
             <View style={styles.warmUpImageContainer}>
               <Image 
@@ -219,21 +255,21 @@ export default function WorkoutDetailScreen() {
             </View>
             <View style={styles.warmUpInfo}>
               <Text style={styles.warmUpName}>Dynamic Warm Up Routine</Text>
-              <Text style={styles.warmUpDuration}>1 round</Text>
+              <Text style={styles.warmUpDuration}>5-10 minutes</Text>
             </View>
             <Text style={styles.warmUpCount}>x1</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Strength Training Section */}
+        {/* Main Exercises Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Strength Training</Text>
+          <Text style={styles.sectionTitle}>Main Exercises</Text>
           {exercises.map(renderExerciseItem)}
         </View>
 
         {/* Cool Down Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Stretching & Cool Down</Text>
+          <Text style={styles.sectionTitle}>Cool Down & Stretching</Text>
           <TouchableOpacity style={styles.coolDownItem}>
             <View style={styles.coolDownImageContainer}>
               <Image 
@@ -246,7 +282,7 @@ export default function WorkoutDetailScreen() {
             </View>
             <View style={styles.coolDownInfo}>
               <Text style={styles.coolDownName}>Post-Workout Stretches</Text>
-              <Text style={styles.coolDownDuration}>1 round</Text>
+              <Text style={styles.coolDownDuration}>5-10 minutes</Text>
             </View>
             <Text style={styles.coolDownCount}>x1</Text>
           </TouchableOpacity>
@@ -270,7 +306,7 @@ export default function WorkoutDetailScreen() {
             
             <Text style={styles.modalTitle}>Workout reschedule</Text>
             <Text style={styles.modalMessage}>
-              This workout is scheduled for Monday, Jun 23. Do you want to move the workout to today?
+              Do you want to move this workout to today?
             </Text>
             
             <TouchableOpacity style={styles.modalButton} onPress={handleMoveToToday}>
@@ -313,11 +349,25 @@ const createStyles = (colors: any) => StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 40,
   },
   errorText: {
     fontFamily: 'Inter-SemiBold',
     fontSize: 18,
     color: colors.text,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  backButton: {
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+  },
+  backButtonText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 16,
+    color: '#FFFFFF',
   },
   heroSection: {
     height: height * 0.5,
@@ -381,8 +431,15 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontFamily: 'Inter-Bold',
     fontSize: 32,
     color: '#FFFFFF',
-    marginBottom: 24,
+    marginBottom: 8,
     lineHeight: 38,
+  },
+  heroDescription: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginBottom: 24,
+    lineHeight: 22,
   },
   startWorkoutButton: {
     backgroundColor: '#FFFFFF',
@@ -409,6 +466,34 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 18,
     color: colors.text,
     marginBottom: 16,
+  },
+  workoutInfoGrid: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  workoutInfoItem: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  workoutInfoLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  workoutInfoValue: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 16,
+    color: colors.text,
   },
   equipmentList: {
     flexDirection: 'row',

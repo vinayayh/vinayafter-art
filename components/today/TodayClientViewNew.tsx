@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,318 +6,391 @@ import {
   ScrollView,
   TouchableOpacity,
   Dimensions,
+  RefreshControl,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { 
-  Dumbbell, 
-  Clock, 
-  Flame,
-  Trophy,
-  Play,
-  Calendar,
+  Plus, 
+  Footprints, 
+  Target, 
+  UtensilsCrossed,
   TrendingUp,
-  ChevronRight
+  Calendar,
+  X,
+  Play,
+  Dumbbell,
+  Clock,
+  ChevronRight,
+  Flame,
+  Users
 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColorScheme, getColors } from '../../hooks/useColorScheme';
+import { useTodayData } from '../../hooks/useTodayData';
 import { router } from 'expo-router';
-import { WorkoutPlan, WorkoutTemplate } from '@/types/workout';
-import { getClientPlans, getTemplate } from '@/utils/storage';
-import { getDayOfWeek, getWeekDates } from '@/utils/workoutUtils';
 
 const { width } = Dimensions.get('window');
 
-interface WeeklyWorkout {
-  date: string;
-  dayName: string;
-  dayNumber: number;
-  template: WorkoutTemplate | null;
-  completed: boolean;
-  missed: boolean;
-}
-
-const achievements = [
-  { name: '7-Day Streak', icon: '🔥', completed: false, progress: 3 },
-  { name: 'First Workout', icon: '💪', completed: true, progress: 1 },
-  { name: '100 Workouts', icon: '🏆', completed: false, progress: 23 },
-];
-
-export default function CoachingClientView() {
-  const colorScheme = useColorScheme();
+export default function TodayClientView() {
+  const colorScheme = useColorScheme() ?? 'light';
   const colors = getColors(colorScheme);
   const styles = createStyles(colors);
+  const { profile, todayStats, workoutSessions, activeGoals, clientAssignment, loading, refreshData } = useTodayData();
 
-  const [selectedTab, setSelectedTab] = useState('workouts');
-  const [weeklyWorkouts, setWeeklyWorkouts] = useState<WeeklyWorkout[]>([]);
-  const [currentPlan, setCurrentPlan] = useState<WorkoutPlan | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [showMissedWorkout, setShowMissedWorkout] = useState(true);
 
-  useEffect(() => {
-    loadWeeklySchedule();
-  }, []);
+  const getCurrentDate = () => {
+    const date = new Date();
+    return date.toLocaleDateString('en-US', { 
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric'
+    }).toUpperCase();
+  };
 
-  const loadWeeklySchedule = async () => {
-    try {
-      const clientId = 'client-1'; // TODO: Get from user context
-      const plans = await getClientPlans(clientId);
-      
-      // Find active plan for this week
-      const today = new Date();
-      const todayString = today.toISOString().split('T')[0];
-      const activePlan = plans.find(plan => 
-        plan.startDate <= todayString && plan.endDate >= todayString
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good Morning';
+    if (hour < 17) return 'Good Afternoon';
+    return 'Good Evening';
+  };
+
+  const userName = profile?.full_name?.split(' ')[0] || 'User';
+  const steps = todayStats?.steps || 0;
+  const stepGoal = 10000;
+  const stepProgress = (steps / stepGoal) * 100;
+
+  // Get today's workout
+  const todaysWorkout = workoutSessions.find(session => !session.completed);
+  const completedWorkouts = workoutSessions.filter(session => session.completed);
+
+  // Get active goal
+  const activeGoal = activeGoals[0] || {
+    title: 'Set your first goal',
+    emoji: '🎯',
+    progress_percentage: 0,
+    target_date: null,
+  };
+
+  const calculateDaysLeft = (targetDate: string | null) => {
+    if (!targetDate) return 0;
+    const target = new Date(targetDate);
+    const today = new Date();
+    const diffTime = target.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return Math.max(0, diffDays);
+  };
+
+  const daysLeft = calculateDaysLeft(activeGoal.target_date);
+
+  const handleFabPress = () => {
+    router.push('/activities');
+  };
+
+  const handleStartWorkout = () => {
+    if (todaysWorkout) {
+      router.push(`/start-workout/${todaysWorkout.id}`);
+    }
+  };
+
+  const handleWorkoutCardPress = () => {
+    if (todaysWorkout) {
+      router.push(`/workout-detail/${todaysWorkout.id}` as any);
+    }
+  };
+
+  const handleGoalPress = () => {
+    router.push('/fitness-goals');
+  };
+
+  const handleSetMacrosGoal = () => {
+    router.push('/set-macros-goal');
+  };
+
+  const handleAddMeal = () => {
+    router.push('/food-journal');
+  };
+
+  const renderTodaysWorkout = () => {
+    if (!todaysWorkout) {
+      return (
+        <LinearGradient
+          colors={colorScheme === 'dark' ? ['#1E40AF', '#3730A3'] : ['#667EEA', '#764BA2']}
+          style={styles.restDayCard}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <View style={styles.restDayContent}>
+            <Text style={styles.restDayLabel}>REST DAY</Text>
+            <Text style={styles.restDayMessage}>
+              Hoo-ray it's your rest-day 🌴
+            </Text>
+          </View>
+        </LinearGradient>
       );
-
-      if (activePlan) {
-        setCurrentPlan(activePlan);
-        
-        // Generate this week's schedule
-        const weekDates = getWeekDates(today);
-        const weeklySchedule: WeeklyWorkout[] = [];
-        
-        const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-        const shortDayNames = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-        
-        for (let i = 0; i < 7; i++) {
-          const dayName = dayNames[i];
-          const date = weekDates[dayName];
-          const dayNumber = new Date(date).getDate();
-          const templateId = activePlan.schedule[dayName];
-          
-          let template = null;
-          if (templateId) {
-            template = await getTemplate(templateId);
-          }
-          
-          // Check if workout was completed or missed
-          const isToday = date === todayString;
-          const isPast = new Date(date) < new Date(todayString);
-          const completed = false; // TODO: Check from workout sessions
-          const missed = isPast && templateId && !completed;
-          
-          weeklySchedule.push({
-            date,
-            dayName: shortDayNames[i],
-            dayNumber,
-            template,
-            completed,
-            missed
-          });
-        }
-        
-        setWeeklyWorkouts(weeklySchedule);
-      }
-    } catch (error) {
-      console.error('Error loading weekly schedule:', error);
-    } finally {
-      setLoading(false);
     }
-  };
 
-  const handleTrainingCalendarPress = () => {
-    router.push('/training-calendar');
-  };
-
-  const handleDayPress = (workout: WeeklyWorkout) => {
-    if (workout.template) {
-      router.push(`/workout-detail/${workout.template.id}`);
-    }
-  };
-
-  const getWorkoutCount = () => {
-    return weeklyWorkouts.filter(w => w.template !== null).length;
-  };
-
-  const renderWeeklyCalendar = () => (
-    <View style={styles.calendarSection}>
+    return (
       <TouchableOpacity 
-        style={styles.calendarHeader}
-        onPress={handleTrainingCalendarPress}
-        activeOpacity={0.7}
+        style={styles.workoutCardContainer}
+        onPress={handleWorkoutCardPress}
+        activeOpacity={0.9}
       >
-        <Text style={styles.calendarTitle}>Training (this week)</Text>
-        <ChevronRight size={20} color={colors.textSecondary} />
+        <LinearGradient
+          colors={colorScheme === 'dark' ? ['#BE185D', '#BE123C'] : ['#F093FB', '#F5576C']}
+          style={styles.workoutCard}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <View style={styles.workoutContent}>
+            <View style={styles.workoutInfo}>
+              <Text style={styles.workoutLabel}>TODAY'S WORKOUT</Text>
+              <Text style={styles.workoutName}>
+                {todaysWorkout.exercises?.length ? `${todaysWorkout.exercises.length} exercises` : 'Custom Workout'}
+              </Text>
+              <Text style={styles.workoutDetails}>
+                {todaysWorkout.duration_minutes ? `${todaysWorkout.duration_minutes} min` : 'Duration varies'}
+              </Text>
+            </View>
+            <TouchableOpacity style={styles.playButton} onPress={handleStartWorkout}>
+              <Play size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        </LinearGradient>
       </TouchableOpacity>
-      
-      <View style={styles.weekContainer}>
-        {weeklyWorkouts.map((workout, index) => (
-          <TouchableOpacity
-            key={index}
-            style={[
-              styles.dayButton,
-              workout.template && styles.activeDayButton,
-              workout.completed && styles.completedDayButton,
-              workout.missed && styles.missedDayButton
-            ]}
-            onPress={() => handleDayPress(workout)}
-            disabled={!workout.template}
-            activeOpacity={0.7}
-          >
-            <Text style={[
-              styles.dayName,
-              workout.template && styles.activeDayName,
-              workout.completed && styles.completedDayName,
-              workout.missed && styles.missedDayName
-            ]}>
-              {workout.dayName}
-            </Text>
-            <Text style={[
-              styles.dayNumber,
-              workout.template && styles.activeDayNumber,
-              workout.completed && styles.completedDayNumber,
-              workout.missed && styles.missedDayNumber
-            ]}>
-              {workout.dayNumber.toString().padStart(2, '0')}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-      
-      <Text style={styles.weekSummary}>
-        You have {getWorkoutCount()} workouts this week!
-      </Text>
-    </View>
-  );
-
-  const renderTaskSection = () => (
-    <View style={styles.taskSection}>
-      <Text style={styles.taskTitle}>Task (last 7 days)</Text>
-      <Text style={styles.taskMessage}>There are no tasks</Text>
-    </View>
-  );
-
-  const renderMacrosSection = () => (
-    <View style={styles.macrosSection}>
-      <Text style={styles.macrosTitle}>Macros</Text>
-      <View style={styles.macrosContent}>
-        <View style={styles.macrosText}>
-          <Text style={styles.macrosDescription}>
-            Start by setting your daily goal
-          </Text>
-          <TouchableOpacity style={styles.macrosButton}>
-            <Text style={styles.macrosButtonText}>Set daily goal</Text>
-          </TouchableOpacity>
-        </View>
-        <Text style={styles.macrosEmoji}>🥗🍎🥕</Text>
-      </View>
-    </View>
-  );
-
-  const renderResourcesSection = () => (
-    <View style={styles.resourcesSection}>
-      <Text style={styles.resourcesTitle}>Resources</Text>
-      <View style={styles.resourcesGrid}>
-        <TouchableOpacity style={styles.resourceCard}>
-          <Text style={styles.resourceTitle}>Welcome Kit</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.resourceCard}>
-          <Text style={styles.resourceTitle}>Nutrition Resources</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.resourceCard}>
-          <Text style={styles.resourceTitle}>Other Resources</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
+    );
+  };
 
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading your training schedule...</Text>
+          <Text style={styles.loadingText}>Loading your data...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Coaching</Text>
-        <View style={styles.tabContainer}>
-          <TouchableOpacity
-            style={[styles.tab, selectedTab === 'workouts' && styles.activeTab]}
-            onPress={() => setSelectedTab('workouts')}
-          >
-            <Text style={[styles.tabText, selectedTab === 'workouts' && styles.activeTabText]}>
-              Workouts
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tab, selectedTab === 'achievements' && styles.activeTab]}
-            onPress={() => setSelectedTab('achievements')}
-          >
-            <Text style={[styles.tabText, selectedTab === 'achievements' && styles.activeTabText]}>
-              Achievements
-            </Text>
-          </TouchableOpacity>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <ScrollView 
+        style={[styles.scrollView, { backgroundColor: colors.background }]} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={loading} onRefresh={refreshData} />
+        }
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.dateText}>{getCurrentDate()}</Text>
+          <Text style={styles.greetingText}>
+            {getGreeting()}, {userName}! 👋
+          </Text>
         </View>
-      </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {selectedTab === 'workouts' ? (
-          <>
-            {/* Weekly Training Calendar */}
-            {renderWeeklyCalendar()}
+        {/* Today's Workout */}
+        {renderTodaysWorkout()}
 
-            {/* Task Section */}
-            {renderTaskSection()}
-
-            {/* Macros Section */}
-            {renderMacrosSection()}
-
-            {/* Resources Section */}
-            {renderResourcesSection()}
-          </>
-        ) : (
-          <>
-            {/* Achievement Progress */}
-            <View style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>Your Progress</Text>
-                <Trophy size={24} color={colors.warning} />
-              </View>
-              
-              <Text style={styles.achievementSummary}>
-                You've unlocked 1 out of 3 achievements. Keep going!
-              </Text>
-              
-              <View style={styles.achievementProgressBar}>
-                <View style={[styles.achievementProgress, { width: '33.33%' }]} />
+        {/* Fitness Goal Card */}
+        <TouchableOpacity style={styles.goalCard} onPress={handleGoalPress}>
+          <View style={styles.goalHeader}>
+            <View style={styles.goalTitleContainer}>
+              <Text style={styles.goalEmoji}>{activeGoal.emoji}</Text>
+              <View>
+                <Text style={styles.goalTitle}>{activeGoal.title}</Text>
+                <Text style={styles.goalSubtitle}>
+                  {daysLeft > 0 ? `${daysLeft} days left` : 'No target date'} • {activeGoal.progress_percentage}% complete
+                </Text>
               </View>
             </View>
+            <TouchableOpacity 
+              style={styles.addGoalButton}
+              onPress={() => router.push('/set-fitness-goal')}
+            >
+              <Plus size={16} color={colors.primary} />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.goalProgressContainer}>
+            <View style={styles.goalProgressBar}>
+              <View 
+                style={[
+                  styles.goalProgressFill, 
+                  { width: `${activeGoal.progress_percentage}%` }
+                ]} 
+              />
+            </View>
+            <Text style={styles.goalProgressText}>{activeGoal.progress_percentage}%</Text>
+          </View>
 
-            {/* Achievement List */}
-            <Text style={styles.sectionTitle}>Achievements</Text>
-            
-            {achievements.map((achievement, index) => (
-              <View key={index} style={styles.achievementCard}>
-                <View style={styles.achievementIcon}>
-                  <Text style={styles.achievementEmoji}>{achievement.icon}</Text>
-                </View>
-                
-                <View style={styles.achievementInfo}>
-                  <Text style={styles.achievementName}>{achievement.name}</Text>
-                  <Text style={styles.achievementProgress}>
-                    {achievement.completed 
-                      ? 'Completed!' 
-                      : `${achievement.progress}/${achievement.name === '7-Day Streak' ? 7 : achievement.name === '100 Workouts' ? 100 : 1}`
-                    }
-                  </Text>
-                </View>
-                
-                {achievement.completed && (
-                  <View style={styles.completedBadge}>
-                    <Text style={styles.completedText}>✓</Text>
-                  </View>
-                )}
-              </View>
-            ))}
-          </>
+          {daysLeft > 0 && (
+            <View style={styles.goalCountdown}>
+              <Clock size={16} color={colors.textSecondary} />
+              <Text style={styles.goalCountdownText}>
+                {daysLeft} days remaining
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* Missed Workout Alert */}
+        {showMissedWorkout && completedWorkouts.length === 0 && (
+          <View style={styles.alertCard}>
+            <View style={styles.alertContent}>
+              <Text style={styles.alertIcon}>⚠️</Text>
+              <Text style={styles.alertText}>
+                You haven't completed any workouts today
+              </Text>
+            </View>
+            <TouchableOpacity 
+              onPress={() => setShowMissedWorkout(false)}
+              style={styles.alertClose}
+            >
+              <X size={18} color={colors.error} />
+            </TouchableOpacity>
+          </View>
         )}
 
+        {/* Steps Tracker */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Steps tracker</Text>
+            <Footprints size={24} color={colors.primary} />
+          </View>
+          
+          <View style={styles.stepsContent}>
+            <View style={styles.stepsInfo}>
+              <Text style={styles.stepsNumber}>
+                {steps.toLocaleString()}
+              </Text>
+              <Text style={styles.stepsGoal}>/ {stepGoal.toLocaleString()} steps</Text>
+            </View>
+            
+            <View style={styles.progressContainer}>
+              <View style={styles.progressBackground}>
+                <View 
+                  style={[
+                    styles.progressFill, 
+                    { width: `${Math.min(stepProgress, 100)}%` }
+                  ]} 
+                />
+              </View>
+              <Text style={styles.progressText}>{Math.round(stepProgress)}%</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Quick Actions */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Quick Actions</Text>
+            <Dumbbell size={24} color={colors.success} />
+          </View>
+          
+          <View style={styles.actionGrid}>
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => router.push('/templates')}
+            >
+              <Text style={styles.actionButtonText}>View Templates</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => router.push('/workout-history')}
+            >
+              <Text style={styles.actionButtonText}>Workout History</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Macros */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Macros</Text>
+            <Target size={24} color={colors.success} />
+          </View>
+          
+          <Text style={styles.cardSubtitle}>
+            Start by setting your daily goal
+          </Text>
+          
+          <TouchableOpacity style={styles.actionButton} onPress={handleSetMacrosGoal}>
+            <Text style={styles.actionButtonText}>Set daily goal</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Food Journal */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Food Journal</Text>
+            <UtensilsCrossed size={24} color={colors.warning} />
+          </View>
+          
+          <Text style={styles.cardSubtitle}>
+            What did you eat today?
+          </Text>
+          
+          <TouchableOpacity style={styles.actionButton} onPress={handleAddMeal}>
+            <Text style={styles.actionButtonText}>Add meal</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Today's Progress */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Today's Progress</Text>
+            <TrendingUp size={24} color={colors.error} />
+          </View>
+          
+          <View style={styles.statsGrid}>
+            <View style={styles.statItem}>
+              <Text style={styles.statNumber}>{completedWorkouts.length}</Text>
+              <Text style={styles.statLabel}>Workouts</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statNumber}>{todayStats?.calories_consumed || 0}</Text>
+              <Text style={styles.statLabel}>Calories</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statNumber}>{((todayStats?.water_intake_ml || 0) / 1000).toFixed(1)}</Text>
+              <Text style={styles.statLabel}>Water (L)</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Trainer/Nutritionist Info */}
+        {clientAssignment && (
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>Your Team</Text>
+              <Users size={24} color={colors.info} />
+            </View>
+            
+            {clientAssignment.trainer && (
+              <View style={styles.teamMember}>
+                <Text style={styles.teamMemberRole}>Trainer</Text>
+                <Text style={styles.teamMemberName}>{clientAssignment.trainer.full_name}</Text>
+              </View>
+            )}
+            
+            {clientAssignment.nutritionist && (
+              <View style={styles.teamMember}>
+                <Text style={styles.teamMemberRole}>Nutritionist</Text>
+                <Text style={styles.teamMemberName}>{clientAssignment.nutritionist.full_name}</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Spacing for FAB */}
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      {/* Floating Action Button */}
+      <TouchableOpacity style={styles.fab} onPress={handleFabPress}>
+        <Plus size={28} color="#FFFFFF" strokeWidth={2} />
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }
@@ -337,210 +410,197 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 16,
     color: colors.textSecondary,
   },
+  scrollView: {
+    flex: 1,
+  },
   header: {
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 20,
   },
-  title: {
+  dateText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 12,
+    color: colors.textTertiary,
+    letterSpacing: 0.5,
+  },
+  greetingText: {
     fontFamily: 'Inter-Bold',
     fontSize: 28,
     color: colors.text,
-    marginBottom: 20,
+    marginTop: 4,
   },
-  tabContainer: {
-    flexDirection: 'row',
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: 8,
-    padding: 4,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-    borderRadius: 6,
-  },
-  activeTab: {
-    backgroundColor: colors.surface,
-  },
-  tabText: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
-  activeTabText: {
-    color: colors.text,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  calendarSection: {
-    paddingHorizontal: 20,
-    marginBottom: 24,
-  },
-  calendarHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  restDayCard: {
+    marginHorizontal: 20,
     marginBottom: 16,
-    paddingVertical: 4,
+    borderRadius: 16,
+    padding: 24,
   },
-  calendarTitle: {
+  restDayContent: {
+    alignItems: 'flex-start',
+  },
+  restDayLabel: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.8)',
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  restDayMessage: {
     fontFamily: 'Inter-SemiBold',
     fontSize: 18,
-    color: colors.text,
+    color: '#FFFFFF',
+    lineHeight: 24,
   },
-  weekContainer: {
+  workoutCardContainer: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+  },
+  workoutCard: {
+    borderRadius: 16,
+    padding: 24,
+  },
+  workoutContent: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  workoutInfo: {
+    flex: 1,
+  },
+  workoutLabel: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.8)',
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  workoutName: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 20,
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  workoutDetails: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  playButton: {
+    width: 56,
+    height: 56,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  goalCard: {
+    backgroundColor: colors.surface,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  goalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     marginBottom: 16,
   },
-  dayButton: {
-    width: 40,
-    height: 60,
-    borderRadius: 20,
-    backgroundColor: colors.surface,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
+  goalTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    flex: 1,
   },
-  activeDayButton: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+  goalEmoji: {
+    fontSize: 32,
+    marginRight: 12,
   },
-  completedDayButton: {
-    backgroundColor: colors.success,
-    borderColor: colors.success,
-  },
-  missedDayButton: {
-    backgroundColor: colors.error,
-    borderColor: colors.error,
-  },
-  dayName: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginBottom: 4,
-  },
-  activeDayName: {
-    color: '#FFFFFF',
-  },
-  completedDayName: {
-    color: '#FFFFFF',
-  },
-  missedDayName: {
-    color: '#FFFFFF',
-  },
-  dayNumber: {
+  goalTitle: {
     fontFamily: 'Inter-Bold',
     fontSize: 16,
     color: colors.text,
+    marginBottom: 4,
   },
-  activeDayNumber: {
-    color: '#FFFFFF',
-  },
-  completedDayNumber: {
-    color: '#FFFFFF',
-  },
-  missedDayNumber: {
-    color: '#FFFFFF',
-  },
-  weekSummary: {
+  goalSubtitle: {
     fontFamily: 'Inter-Regular',
-    fontSize: 14,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  taskSection: {
-    paddingHorizontal: 20,
-    marginBottom: 24,
-  },
-  taskTitle: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 18,
-    color: colors.text,
-    marginBottom: 12,
-  },
-  taskMessage: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 14,
+    fontSize: 12,
     color: colors.textSecondary,
   },
-  macrosSection: {
-    paddingHorizontal: 20,
-    marginBottom: 24,
+  addGoalButton: {
+    width: 32,
+    height: 32,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  macrosTitle: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 18,
-    color: colors.text,
-    marginBottom: 16,
-  },
-  macrosContent: {
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: 20,
+  goalProgressContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  macrosText: {
-    flex: 1,
-  },
-  macrosDescription: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 14,
-    color: colors.textSecondary,
     marginBottom: 12,
-    lineHeight: 20,
   },
-  macrosButton: {
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    alignSelf: 'flex-start',
-  },
-  macrosButtonText: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 12,
-    color: colors.primary,
-  },
-  macrosEmoji: {
-    fontSize: 32,
-    marginLeft: 16,
-  },
-  resourcesSection: {
-    paddingHorizontal: 20,
-    marginBottom: 24,
-  },
-  resourcesTitle: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 18,
-    color: colors.text,
-    marginBottom: 16,
-  },
-  resourcesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  resourceCard: {
+  goalProgressBar: {
     flex: 1,
-    minWidth: '30%',
+    height: 8,
+    backgroundColor: colors.borderLight,
+    borderRadius: 4,
+    marginRight: 12,
+  },
+  goalProgressFill: {
+    height: '100%',
+    backgroundColor: colors.success,
+    borderRadius: 4,
+  },
+  goalProgressText: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 14,
+    color: colors.success,
+    minWidth: 40,
+  },
+  goalCountdown: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  goalCountdownText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  alertCard: {
     backgroundColor: colors.surface,
+    marginHorizontal: 20,
+    marginBottom: 16,
     borderRadius: 12,
     padding: 16,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 80,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.error,
   },
-  resourceTitle: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 12,
+  alertContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  alertIcon: {
+    fontSize: 16,
+    marginRight: 8,
+  },
+  alertText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 14,
     color: colors.text,
-    textAlign: 'center',
+    flex: 1,
+  },
+  alertClose: {
+    padding: 4,
   },
   card: {
     backgroundColor: colors.surface,
@@ -568,86 +628,124 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 18,
     color: colors.text,
   },
-  achievementSummary: {
+  cardSubtitle: {
     fontFamily: 'Inter-Regular',
     fontSize: 14,
     color: colors.textSecondary,
     marginBottom: 16,
     lineHeight: 20,
   },
-  achievementProgressBar: {
+  stepsContent: {
+    alignItems: 'flex-start',
+  },
+  stepsInfo: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginBottom: 16,
+  },
+  stepsNumber: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 32,
+    color: colors.text,
+  },
+  stepsGoal: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 16,
+    color: colors.textSecondary,
+    marginLeft: 4,
+  },
+  progressContainer: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  progressBackground: {
+    flex: 1,
     height: 8,
     backgroundColor: colors.borderLight,
     borderRadius: 4,
-    overflow: 'hidden',
+    marginRight: 12,
   },
-  achievementProgress: {
+  progressFill: {
     height: '100%',
-    backgroundColor: colors.warning,
+    backgroundColor: colors.primary,
     borderRadius: 4,
   },
-  sectionTitle: {
+  progressText: {
     fontFamily: 'Inter-SemiBold',
-    fontSize: 18,
-    color: colors.text,
-    marginHorizontal: 20,
-    marginBottom: 12,
-    marginTop: 8,
+    fontSize: 12,
+    color: colors.primary,
+    minWidth: 35,
   },
-  achievementCard: {
-    backgroundColor: colors.surface,
-    marginHorizontal: 20,
-    marginBottom: 12,
-    borderRadius: 12,
-    padding: 16,
+  actionGrid: {
     flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: colors.shadow,
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 1,
-    shadowRadius: 4,
-    elevation: 1,
+    gap: 12,
   },
-  achievementIcon: {
-    width: 48,
-    height: 48,
+  actionButton: {
+    flex: 1,
     backgroundColor: colors.surfaceSecondary,
-    borderRadius: 24,
-    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     alignItems: 'center',
-    marginRight: 16,
   },
-  achievementEmoji: {
-    fontSize: 24,
+  actionButtonText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: colors.text,
   },
-  achievementInfo: {
+  statsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  statItem: {
+    alignItems: 'center',
     flex: 1,
   },
-  achievementName: {
+  statNumber: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 24,
+    color: colors.text,
+  },
+  statLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 4,
+  },
+  teamMember: {
+    marginBottom: 12,
+  },
+  teamMemberRole: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: 2,
+  },
+  teamMemberName: {
     fontFamily: 'Inter-SemiBold',
     fontSize: 16,
     color: colors.text,
   },
-  achievementProgress: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 13,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-  completedBadge: {
-    width: 24,
-    height: 24,
-    backgroundColor: colors.success,
-    borderRadius: 12,
+  fab: {
+    position: 'absolute',
+    bottom: 90,
+    right: 20,
+    width: 56,
+    height: 56,
+    backgroundColor: colors.primary,
+    borderRadius: 28,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  completedText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontFamily: 'Inter-Bold',
+    shadowColor: colors.shadow,
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 8,
   },
 });

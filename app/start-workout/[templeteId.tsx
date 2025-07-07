@@ -26,13 +26,16 @@ import {
 } from 'lucide-react-native';
 import { useColorScheme, getColors } from '@/hooks/useColorScheme';
 import { router, useLocalSearchParams } from 'expo-router';
-import { WorkoutTemplate, WorkoutSession, WorkoutSet } from '@/types/workout';
-import { getTemplate, saveSession } from '@/utils/storage';
-import { generateId } from '@/utils/workoutUtils';
+import { getWorkoutTemplate, WorkoutTemplate } from '@/lib/workoutTemplates';
 
-interface ActiveSet extends WorkoutSet {
+interface ActiveSet {
   id: string;
+  reps?: number;
+  weight?: number;
+  duration?: number;
+  restTime?: number;
   completed: boolean;
+  notes?: string;
 }
 
 interface ActiveExercise {
@@ -41,6 +44,23 @@ interface ActiveExercise {
   sets: ActiveSet[];
   currentSetIndex: number;
   notes: string;
+}
+
+interface WorkoutSession {
+  id: string;
+  clientId: string;
+  templateId: string;
+  date: string;
+  startTime?: string;
+  endTime?: string;
+  exercises: {
+    exerciseId: string;
+    sets: ActiveSet[];
+    notes?: string;
+  }[];
+  notes?: string;
+  completed: boolean;
+  synced: boolean;
 }
 
 export default function StartWorkoutScreen() {
@@ -61,6 +81,7 @@ export default function StartWorkoutScreen() {
   const [showRestTimer, setShowRestTimer] = useState(false);
   const [showFinishModal, setShowFinishModal] = useState(false);
   const [workoutNotes, setWorkoutNotes] = useState('');
+  const [loading, setLoading] = useState(true);
 
   const workoutTimerRef = useRef<NodeJS.Timeout | null>(null);
   const restTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -116,35 +137,50 @@ export default function StartWorkoutScreen() {
 
   const loadTemplate = async () => {
     try {
-      const loadedTemplate = await getTemplate(templateId as string);
+      setLoading(true);
+      const loadedTemplate = await getWorkoutTemplate(templateId as string);
+      
       if (loadedTemplate) {
         setTemplate(loadedTemplate);
         initializeExercises(loadedTemplate);
         initializeWorkoutSession(loadedTemplate);
       } else {
-        Alert.alert('Error', 'Workout template not found');
-        router.back();
+        Alert.alert('Error', 'Workout template not found', [
+          { text: 'OK', onPress: () => router.back() }
+        ]);
       }
     } catch (error) {
       console.error('Error loading template:', error);
-      Alert.alert('Error', 'Failed to load workout template');
-      router.back();
+      Alert.alert('Error', 'Failed to load workout template', [
+        { text: 'OK', onPress: () => router.back() }
+      ]);
+    } finally {
+      setLoading(false);
     }
   };
 
   const initializeExercises = (template: WorkoutTemplate) => {
-    const activeExercises: ActiveExercise[] = template.exercises.map(templateExercise => ({
-      exerciseId: templateExercise.exerciseId,
-      exerciseName: templateExercise.exercise.name,
-      sets: templateExercise.sets.map(set => ({
-        id: generateId(),
+    const activeExercises: ActiveExercise[] = template.exercises.map((templateExercise, index) => ({
+      exerciseId: templateExercise.id || `exercise-${index}`,
+      exerciseName: templateExercise.name,
+      sets: templateExercise.sets?.map((set: any, setIndex: number) => ({
+        id: `set-${index}-${setIndex}`,
         reps: set.reps,
         weight: set.weight,
         duration: set.duration,
-        restTime: set.restTime,
+        restTime: set.restTime || 60,
         completed: false,
         notes: '',
-      })),
+      })) || [
+        {
+          id: `set-${index}-0`,
+          reps: 10,
+          weight: 0,
+          restTime: 60,
+          completed: false,
+          notes: '',
+        }
+      ],
       currentSetIndex: 0,
       notes: templateExercise.notes || '',
     }));
@@ -153,7 +189,7 @@ export default function StartWorkoutScreen() {
 
   const initializeWorkoutSession = (template: WorkoutTemplate) => {
     const session: WorkoutSession = {
-      id: generateId(),
+      id: `session-${Date.now()}`,
       clientId: 'current-user', // TODO: Get from user context
       templateId: template.id,
       date: new Date().toISOString().split('T')[0],
@@ -163,6 +199,10 @@ export default function StartWorkoutScreen() {
       synced: false,
     };
     setWorkoutSession(session);
+  };
+
+  const generateId = (): string => {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2);
   };
 
   const startWorkout = () => {
@@ -245,7 +285,8 @@ export default function StartWorkoutScreen() {
         completed: true,
       };
 
-      await saveSession(completedSession);
+      // TODO: Save to database instead of local storage
+      console.log('Workout completed:', completedSession);
       
       Alert.alert(
         'Workout Complete!',
@@ -366,11 +407,25 @@ export default function StartWorkoutScreen() {
     );
   };
 
-  if (!template || exercises.length === 0) {
+  if (loading) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Loading workout...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!template || exercises.length === 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorTitle}>Workout Not Found</Text>
+          <Text style={styles.errorText}>The workout template could not be loaded.</Text>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+            <Text style={styles.backButtonText}>Go Back</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -610,6 +665,37 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 16,
     color: colors.textSecondary,
   },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  errorTitle: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 20,
+    color: colors.text,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  errorText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 16,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  backButton: {
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+  },
+  backButtonText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -618,9 +704,6 @@ const createStyles = (colors: any) => StyleSheet.create({
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-  },
-  backButton: {
-    padding: 4,
   },
   headerCenter: {
     flex: 1,

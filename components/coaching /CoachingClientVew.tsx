@@ -25,9 +25,10 @@ import {
 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColorScheme, getColors } from '../../hooks/useColorScheme';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useTodayDataNew } from '../../hooks/useTodayDataNew';
-import { getWorkoutTemplates, initializeDefaultTemplates, WorkoutTemplate } from '../../lib/workoutTemplates';
+import { getWorkoutTemplates, WorkoutTemplate } from '../../lib/workoutTemplates';
+import { supabase } from '../../lib/supabase';
 
 const { width } = Dimensions.get('window');
 
@@ -36,21 +37,57 @@ export default function CoachingClientView() {
   const colors = getColors(colorScheme);
   const styles = createStyles(colors);
   const { data, loading, error, refreshData } = useTodayDataNew();
+  const { clientId } = useLocalSearchParams();
 
   const [selectedTab, setSelectedTab] = useState('workouts');
   const [refreshing, setRefreshing] = useState(false);
   const [workoutTemplates, setWorkoutTemplates] = useState<WorkoutTemplate[]>([]);
+  const [weeklyWorkouts, setWeeklyWorkouts] = useState<any[]>([]);
+
+  function getStartAndEndOfWeek() {
+    const now = new Date();
+    const start = new Date(now);
+    start.setDate(now.getDate() - now.getDay()); // Sunday
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6); // Saturday
+    return {
+      start: start.toISOString().split('T')[0],
+      end: end.toISOString().split('T')[0],
+    };
+  }
+
+  const loadWeeklySchedule = async () => {
+    const { start, end } = getStartAndEndOfWeek();
+    // Use clientId from route params
+    if (!clientId || typeof clientId !== 'string') {
+      console.warn('No clientId found in route params.');
+      setWeeklyWorkouts([]);
+      return;
+    }
+    const { data, error } = await supabase
+      .from('workout_sessions')
+      .select('*')
+      .eq('client_id', clientId)
+      .gte('date', start)
+      .lte('date', end)
+      .order('date', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching weekly schedule:', error);
+      setWeeklyWorkouts([]);
+      return;
+    }
+    setWeeklyWorkouts(data || []);
+  };
 
   useEffect(() => {
     loadWorkoutTemplates();
+    loadWeeklySchedule();
   }, []);
 
   const loadWorkoutTemplates = async () => {
     try {
-      // Initialize default templates if none exist
-      await initializeDefaultTemplates();
-      
-      // Load templates from database
+      // Fetch templates from Supabase database
       const templates = await getWorkoutTemplates();
       setWorkoutTemplates(templates);
     } catch (error) {
@@ -62,6 +99,7 @@ export default function CoachingClientView() {
     setRefreshing(true);
     await refreshData();
     await loadWorkoutTemplates();
+    await loadWeeklySchedule();
     setRefreshing(false);
   };
 
@@ -69,14 +107,11 @@ export default function CoachingClientView() {
     router.push('/training-calendar');
   };
 
-  const handleDayPress = (workout: any) => {
-    // Find a template to show - use the first available template
-    if (workoutTemplates.length > 0) {
-      const template = workoutTemplates[0]; // Use first template as default
-      router.push(`/workout-detail/${template.id}`);
+  const handleDayPress = (session: any) => {
+    if (session.template_id) {
+      router.push(`/workout-detail/${session.template_id}`);
     } else {
-      // If no templates available, create a mock one
-      router.push('/workout-detail/template-1');
+      alert('No workout template assigned for this session.');
     }
   };
 
@@ -98,41 +133,6 @@ export default function CoachingClientView() {
     }
   };
 
-  // Mock weekly workouts data with template references
-  const weeklyWorkouts = [
-    { 
-      dayName: 'M', 
-      dayNumber: 6, 
-      template: workoutTemplates[0] || { id: 'template-1', name: 'Upper Body' }, 
-      completed: true, 
-      missed: false 
-    },
-    { 
-      dayName: 'T', 
-      dayNumber: 7, 
-      template: workoutTemplates[1] || { id: 'template-2', name: 'Cardio' }, 
-      completed: false, 
-      missed: false 
-    },
-    { dayName: 'W', dayNumber: 8, template: null, completed: false, missed: false },
-    { 
-      dayName: 'T', 
-      dayNumber: 9, 
-      template: workoutTemplates[2] || { id: 'template-3', name: 'Lower Body' }, 
-      completed: false, 
-      missed: false 
-    },
-    { 
-      dayName: 'F', 
-      dayNumber: 10, 
-      template: workoutTemplates[3] || { id: 'template-4', name: 'HIIT' }, 
-      completed: false, 
-      missed: false 
-    },
-    { dayName: 'S', dayNumber: 11, template: null, completed: false, missed: false },
-    { dayName: 'S', dayNumber: 12, template: null, completed: false, missed: false },
-  ];
-
   const getWorkoutCount = () => {
     return weeklyWorkouts.filter(w => w.template !== null).length;
   };
@@ -149,41 +149,28 @@ export default function CoachingClientView() {
       </TouchableOpacity>
       
       <View style={styles.weekContainer}>
-        {weeklyWorkouts.map((workout, index) => (
+        {weeklyWorkouts.map((session, index) => (
           <TouchableOpacity
-            key={index}
+            key={session.id}
             style={[
               styles.dayButton,
-              workout.template && styles.activeDayButton,
-              workout.completed && styles.completedDayButton,
-              workout.missed && styles.missedDayButton
+              session.completed && styles.completedDayButton
             ]}
-            onPress={() => handleDayPress(workout)}
-            disabled={!workout.template}
+            onPress={() => handleDayPress(session)}
             activeOpacity={0.7}
           >
-            <Text style={[
-              styles.dayName,
-              workout.template && styles.activeDayName,
-              workout.completed && styles.completedDayName,
-              workout.missed && styles.missedDayName
-            ]}>
-              {workout.dayName}
+            <Text style={styles.dayName}>
+              {new Date(session.date).toLocaleDateString('en-US', { weekday: 'short' })}
             </Text>
-            <Text style={[
-              styles.dayNumber,
-              workout.template && styles.activeDayNumber,
-              workout.completed && styles.completedDayNumber,
-              workout.missed && styles.missedDayNumber
-            ]}>
-              {workout.dayNumber.toString().padStart(2, '0')}
+            <Text style={styles.dayNumber}>
+              {new Date(session.date).getDate()}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
       
       <Text style={styles.weekSummary}>
-        You have {getWorkoutCount()} workouts this week!
+        You have {weeklyWorkouts.length} workouts this week!
       </Text>
     </View>
   );
@@ -505,17 +492,9 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  activeDayButton: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
   completedDayButton: {
     backgroundColor: colors.success,
     borderColor: colors.success,
-  },
-  missedDayButton: {
-    backgroundColor: colors.error,
-    borderColor: colors.error,
   },
   dayName: {
     fontFamily: 'Inter-Medium',
@@ -523,28 +502,10 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: colors.textSecondary,
     marginBottom: 4,
   },
-  activeDayName: {
-    color: '#FFFFFF',
-  },
-  completedDayName: {
-    color: '#FFFFFF',
-  },
-  missedDayName: {
-    color: '#FFFFFF',
-  },
   dayNumber: {
     fontFamily: 'Inter-Bold',
     fontSize: 16,
     color: colors.text,
-  },
-  activeDayNumber: {
-    color: '#FFFFFF',
-  },
-  completedDayNumber: {
-    color: '#FFFFFF',
-  },
-  missedDayNumber: {
-    color: '#FFFFFF',
   },
   weekSummary: {
     fontFamily: 'Inter-Regular',

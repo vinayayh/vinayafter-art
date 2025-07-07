@@ -28,8 +28,19 @@ import { useColorScheme, getColors } from '../../hooks/useColorScheme';
 import { router } from 'expo-router';
 import { useTodayDataNew } from '../../hooks/useTodayDataNew';
 import { getWorkoutTemplates, WorkoutTemplate } from '../../lib/workoutTemplates';
+import { supabase } from '../../lib/supabase';
 
 const { width } = Dimensions.get('window');
+
+interface WeeklyWorkout {
+  dayName: string;
+  dayNumber: number;
+  template: { id: string; name: string } | null;
+  completed: boolean;
+  missed: boolean;
+  sessionId?: string;
+  scheduledTime?: string;
+}
 
 export default function CoachingClientView() {
   const colorScheme = useColorScheme() ?? 'light';
@@ -40,9 +51,12 @@ export default function CoachingClientView() {
   const [selectedTab, setSelectedTab] = useState('workouts');
   const [refreshing, setRefreshing] = useState(false);
   const [workoutTemplates, setWorkoutTemplates] = useState<WorkoutTemplate[]>([]);
+  const [weeklyWorkouts, setWeeklyWorkouts] = useState<WeeklyWorkout[]>([]);
+  const [loadingWeekly, setLoadingWeekly] = useState(true);
 
   useEffect(() => {
     loadWorkoutTemplates();
+    loadWeeklyWorkouts();
   }, []);
 
   const loadWorkoutTemplates = async () => {
@@ -55,10 +69,155 @@ export default function CoachingClientView() {
     }
   };
 
+  const loadWeeklyWorkouts = async () => {
+    try {
+      setLoadingWeekly(true);
+      
+      // Get current user profile
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.log('No authenticated user found');
+        setLoadingWeekly(false);
+        return;
+      }
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('user_id', user.id)
+        .single();
+
+      if (!profile) {
+        console.log('No profile found for user');
+        setLoadingWeekly(false);
+        return;
+      }
+
+      // Get current week dates (Monday to Sunday)
+      const today = new Date();
+      const currentDay = today.getDay();
+      const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay; // Handle Sunday as 0
+      const monday = new Date(today);
+      monday.setDate(today.getDate() + mondayOffset);
+
+      const weekDates = [];
+      for (let i = 0; i < 7; i++) {
+        const date = new Date(monday);
+        date.setDate(monday.getDate() + i);
+        weekDates.push(date);
+      }
+
+      // Fetch workout sessions for this week
+      const startDate = weekDates[0].toISOString().split('T')[0];
+      const endDate = weekDates[6].toISOString().split('T')[0];
+
+      const { data: workoutSessions, error: sessionsError } = await supabase
+        .from('workout_sessions')
+        .select('*')
+        .eq('client_id', profile.id)
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .order('date', { ascending: true });
+
+      if (sessionsError) {
+        console.error('Error fetching workout sessions:', sessionsError);
+      }
+
+      // Fetch training sessions for this week
+      const { data: trainingSessions, error: trainingError } = await supabase
+        .from('training_sessions')
+        .select('*')
+        .eq('client_id', profile.id)
+        .gte('scheduled_date', startDate)
+        .lte('scheduled_date', endDate)
+        .order('scheduled_date', { ascending: true });
+
+      if (trainingError) {
+        console.error('Error fetching training sessions:', trainingError);
+      }
+
+      // Create weekly workout structure
+      const dayNames = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+      const weeklyData: WeeklyWorkout[] = weekDates.map((date, index) => {
+        const dateString = date.toISOString().split('T')[0];
+        const dayNumber = date.getDate();
+        
+        // Check for workout session on this date
+        const workoutSession = workoutSessions?.find(session => session.date === dateString);
+        
+        // Check for training session on this date
+        const trainingSession = trainingSessions?.find(session => session.scheduled_date === dateString);
+        
+        // Prefer workout session over training session
+        const session = workoutSession || trainingSession;
+        
+        let template = null;
+        let completed = false;
+        let missed = false;
+        let sessionId = undefined;
+        let scheduledTime = undefined;
+
+        if (session) {
+          // Try to get template info
+          if (session.template_id) {
+            const templateData = workoutTemplates.find(t => t.id === session.template_id);
+            if (templateData) {
+              template = { id: templateData.id, name: templateData.name };
+            } else {
+              // Fallback template info
+              template = { id: session.template_id, name: 'Workout' };
+            }
+          } else {
+            // Generic workout/training session
+            template = { 
+              id: session.id, 
+              name: session.type || 'Training Session' 
+            };
+          }
+
+          sessionId = session.id;
+          scheduledTime = session.start_time || session.scheduled_time;
+          
+          // Determine completion status
+          if (workoutSession) {
+            completed = workoutSession.completed || false;
+          } else if (trainingSession) {
+            completed = trainingSession.status === 'completed';
+            missed = trainingSession.status === 'no_show';
+          }
+
+          // Check if session is missed (past date and not completed)
+          const sessionDate = new Date(dateString);
+          const now = new Date();
+          if (sessionDate < now && !completed) {
+            missed = true;
+          }
+        }
+
+        return {
+          dayName: dayNames[index],
+          dayNumber,
+          template,
+          completed,
+          missed,
+          sessionId,
+          scheduledTime
+        };
+      });
+
+      setWeeklyWorkouts(weeklyData);
+    } catch (error) {
+      console.error('Error loading weekly workouts:', error);
+    } finally {
+      setLoadingWeekly(false);
+    }
+  };
+
   const handleRefresh = async () => {
     setRefreshing(true);
     await refreshData();
     await loadWorkoutTemplates();
+    await loadWeeklyWorkouts();
     setRefreshing(false);
   };
 
@@ -66,15 +225,31 @@ export default function CoachingClientView() {
     router.push('/training-calendar');
   };
 
-  const handleDayPress = (workout: any) => {
-    // Find a template to show - use the first available template
-    if (workoutTemplates.length > 0) {
-      const template = workoutTemplates[0]; // Use first template as default
-      console.log('handleDayPress: workoutTemplates:', workoutTemplates, 'Selected template:', template);
-      router.push(`/workout-detail/${template.id}`);
+  const handleDayPress = (workout: WeeklyWorkout) => {
+    if (!workout.template) {
+      console.log('No workout scheduled for this day');
+      return;
+    }
+
+    console.log('handleDayPress: workout:', workout);
+    
+    if (workout.completed) {
+      // Navigate to workout detail/history
+      if (workout.sessionId) {
+        router.push(`/workout-detail/${workout.sessionId}`);
+      } else {
+        router.push(`/workout-detail/${workout.template.id}`);
+      }
+    } else if (workout.missed) {
+      // Show missed workout detail
+      router.push(`/workout-detail/${workout.template.id}`);
     } else {
-      // If no templates available, create a mock one
-      router.push('/workout-detail/template-1');
+      // Navigate to start workout
+      if (workout.sessionId) {
+        router.push(`/start-workout/${workout.sessionId}`);
+      } else {
+        router.push(`/start-workout/${workout.template.id}`);
+      }
     }
   };
 
@@ -96,17 +271,6 @@ export default function CoachingClientView() {
     }
   };
 
-  // Mock weekly workouts data - you can replace this with real data from your database
-  const weeklyWorkouts = [
-    { dayName: 'M', dayNumber: 6, template: { id: '6bc4abee-5ace-4b21-b1ce-dd4ef9be85b4', name: 'Fv' }, completed: true, missed: false },
-    { dayName: 'T', dayNumber: 7, template: { id: '030f7d0b-b39f-4f0e-8ee6-4f0d48e3e297', name: 'Vinay' }, completed: false, missed: false },
-    { dayName: 'W', dayNumber: 8, template: null, completed: false, missed: false },
-    { dayName: 'T', dayNumber: 9, template: { id: '97a7d69a-02ce-4d64-bdff-523c59b95229', name: 'Ad' }, completed: false, missed: false },
-    { dayName: 'F', dayNumber: 10, template: { id: '051879ea-1211-4454-9597-73fadb837d8c', name: 'Gg' }, completed: false, missed: false },
-    { dayName: 'S', dayNumber: 11, template: null, completed: false, missed: false },
-    { dayName: 'S', dayNumber: 12, template: null, completed: false, missed: false },
-  ];
-
   const getWorkoutCount = () => {
     return weeklyWorkouts.filter(w => w.template !== null).length;
   };
@@ -122,43 +286,61 @@ export default function CoachingClientView() {
         <ChevronRight size={20} color={colors.textSecondary} />
       </TouchableOpacity>
       
-      <View style={styles.weekContainer}>
-        {weeklyWorkouts.map((workout, index) => (
-          <TouchableOpacity
-            key={index}
-            style={[
-              styles.dayButton,
-              workout.template && styles.activeDayButton,
-              workout.completed && styles.completedDayButton,
-              workout.missed && styles.missedDayButton
-            ]}
-            onPress={() => handleDayPress(workout)}
-            disabled={!workout.template}
-            activeOpacity={0.7}
-          >
-            <Text style={[
-              styles.dayName,
-              workout.template && styles.activeDayName,
-              workout.completed && styles.completedDayName,
-              workout.missed && styles.missedDayName
-            ]}>
-              {workout.dayName}
-            </Text>
-            <Text style={[
-              styles.dayNumber,
-              workout.template && styles.activeDayNumber,
-              workout.completed && styles.completedDayNumber,
-              workout.missed && styles.missedDayNumber
-            ]}>
-              {workout.dayNumber.toString().padStart(2, '0')}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-      
-      <Text style={styles.weekSummary}>
-        You have {getWorkoutCount()} workouts this week!
-      </Text>
+      {loadingWeekly ? (
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading workouts...</Text>
+        </View>
+      ) : (
+        <>
+          <View style={styles.weekContainer}>
+            {weeklyWorkouts.map((workout, index) => (
+              <TouchableOpacity
+                key={index}
+                style={[
+                  styles.dayButton,
+                  workout.template && styles.activeDayButton,
+                  workout.completed && styles.completedDayButton,
+                  workout.missed && styles.missedDayButton
+                ]}
+                onPress={() => handleDayPress(workout)}
+                disabled={!workout.template}
+                activeOpacity={0.7}
+              >
+                <Text style={[
+                  styles.dayName,
+                  workout.template && styles.activeDayName,
+                  workout.completed && styles.completedDayName,
+                  workout.missed && styles.missedDayName
+                ]}>
+                  {workout.dayName}
+                </Text>
+                <Text style={[
+                  styles.dayNumber,
+                  workout.template && styles.activeDayNumber,
+                  workout.completed && styles.completedDayNumber,
+                  workout.missed && styles.missedDayNumber
+                ]}>
+                  {workout.dayNumber.toString().padStart(2, '0')}
+                </Text>
+                {workout.scheduledTime && (
+                  <Text style={[
+                    styles.dayTime,
+                    workout.template && styles.activeDayTime,
+                    workout.completed && styles.completedDayTime,
+                    workout.missed && styles.missedDayTime
+                  ]}>
+                    {workout.scheduledTime.slice(0, 5)}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+          
+          <Text style={styles.weekSummary}>
+            You have {getWorkoutCount()} workouts this week!
+          </Text>
+        </>
+      )}
     </View>
   );
 
@@ -373,6 +555,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 40,
   },
   loadingText: {
     fontFamily: 'Inter-Regular',
@@ -471,7 +654,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   dayButton: {
     width: 40,
-    height: 60,
+    height: 70,
     borderRadius: 20,
     backgroundColor: colors.surface,
     justifyContent: 'center',
@@ -510,6 +693,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontFamily: 'Inter-Bold',
     fontSize: 16,
     color: colors.text,
+    marginBottom: 2,
   },
   activeDayNumber: {
     color: '#FFFFFF',
@@ -519,6 +703,20 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   missedDayNumber: {
     color: '#FFFFFF',
+  },
+  dayTime: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 8,
+    color: colors.textTertiary,
+  },
+  activeDayTime: {
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  completedDayTime: {
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  missedDayTime: {
+    color: 'rgba(255, 255, 255, 0.8)',
   },
   weekSummary: {
     fontFamily: 'Inter-Regular',

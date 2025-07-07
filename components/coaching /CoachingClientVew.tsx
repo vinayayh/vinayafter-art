@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Dimensions,
+  RefreshControl,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { 
@@ -16,113 +17,72 @@ import {
   Play,
   Calendar,
   TrendingUp,
-  ChevronRight
+  ChevronRight,
+  Users,
+  Target,
+  Award,
+  Activity
 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColorScheme, getColors } from '../../hooks/useColorScheme';
 import { router } from 'expo-router';
-import { WorkoutPlan, WorkoutTemplate } from '@/types/workout';
-import { getClientPlans, getTemplate } from '@/utils/storage';
-import { getDayOfWeek, getWeekDates } from '@/utils/workoutUtils';
+import { useTodayDataNew } from '../../hooks/useTodayDataNew';
 
 const { width } = Dimensions.get('window');
 
-interface WeeklyWorkout {
-  date: string;
-  dayName: string;
-  dayNumber: number;
-  template: WorkoutTemplate | null;
-  completed: boolean;
-  missed: boolean;
-}
-
-const achievements = [
-  { name: '7-Day Streak', icon: '🔥', completed: false, progress: 3 },
-  { name: 'First Workout', icon: '💪', completed: true, progress: 1 },
-  { name: '100 Workouts', icon: '🏆', completed: false, progress: 23 },
-];
-
 export default function CoachingClientView() {
-  const colorScheme = useColorScheme();
+  const colorScheme = useColorScheme() ?? 'light';
   const colors = getColors(colorScheme);
   const styles = createStyles(colors);
+  const { data, loading, error, refreshData } = useTodayDataNew();
 
   const [selectedTab, setSelectedTab] = useState('workouts');
-  const [weeklyWorkouts, setWeeklyWorkouts] = useState<WeeklyWorkout[]>([]);
-  const [currentPlan, setCurrentPlan] = useState<WorkoutPlan | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    loadWeeklySchedule();
-  }, []);
-
-  const loadWeeklySchedule = async () => {
-    try {
-      const clientId = 'client-1'; // TODO: Get from user context
-      const plans = await getClientPlans(clientId);
-      
-      // Find active plan for this week
-      const today = new Date();
-      const todayString = today.toISOString().split('T')[0];
-      const activePlan = plans.find(plan => 
-        plan.startDate <= todayString && plan.endDate >= todayString
-      );
-
-      if (activePlan) {
-        setCurrentPlan(activePlan);
-        
-        // Generate this week's schedule
-        const weekDates = getWeekDates(today);
-        const weeklySchedule: WeeklyWorkout[] = [];
-        
-        const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-        const shortDayNames = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-        
-        for (let i = 0; i < 7; i++) {
-          const dayName = dayNames[i];
-          const date = weekDates[dayName];
-          const dayNumber = new Date(date).getDate();
-          const templateId = activePlan.schedule[dayName];
-          
-          let template = null;
-          if (templateId) {
-            template = await getTemplate(templateId);
-          }
-          
-          // Check if workout was completed or missed
-          const isToday = date === todayString;
-          const isPast = new Date(date) < new Date(todayString);
-          const completed = false; // TODO: Check from workout sessions
-          const missed = isPast && templateId && !completed;
-          
-          weeklySchedule.push({
-            date,
-            dayName: shortDayNames[i],
-            dayNumber,
-            template,
-            completed,
-            missed
-          });
-        }
-        
-        setWeeklyWorkouts(weeklySchedule);
-      }
-    } catch (error) {
-      console.error('Error loading weekly schedule:', error);
-    } finally {
-      setLoading(false);
-    }
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await refreshData();
+    setRefreshing(false);
   };
 
   const handleTrainingCalendarPress = () => {
     router.push('/training-calendar');
   };
 
-  const handleDayPress = (workout: WeeklyWorkout) => {
+  const handleDayPress = (workout: any) => {
     if (workout.template) {
       router.push(`/workout-detail/${workout.template.id}`);
     }
   };
+
+  const formatDate = (date: Date) => {
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+
+    if (date.toDateString() === today.toDateString()) {
+      return 'Today';
+    } else if (date.toDateString() === yesterday.toDateString()) {
+      return 'Yesterday';
+    } else {
+      return date.toLocaleDateString('en-US', { 
+        weekday: 'long',
+        month: 'short',
+        day: 'numeric'
+      });
+    }
+  };
+
+  // Mock weekly workouts data - you can replace this with real data from your database
+  const weeklyWorkouts = [
+    { dayName: 'M', dayNumber: 6, template: { id: '1', name: 'Upper Body' }, completed: true, missed: false },
+    { dayName: 'T', dayNumber: 7, template: { id: '2', name: 'Cardio' }, completed: false, missed: false },
+    { dayName: 'W', dayNumber: 8, template: null, completed: false, missed: false },
+    { dayName: 'T', dayNumber: 9, template: { id: '3', name: 'Lower Body' }, completed: false, missed: false },
+    { dayName: 'F', dayNumber: 10, template: { id: '4', name: 'HIIT' }, completed: false, missed: false },
+    { dayName: 'S', dayNumber: 11, template: null, completed: false, missed: false },
+    { dayName: 'S', dayNumber: 12, template: null, completed: false, missed: false },
+  ];
 
   const getWorkoutCount = () => {
     return weeklyWorkouts.filter(w => w.template !== null).length;
@@ -194,7 +154,10 @@ export default function CoachingClientView() {
           <Text style={styles.macrosDescription}>
             Start by setting your daily goal
           </Text>
-          <TouchableOpacity style={styles.macrosButton}>
+          <TouchableOpacity 
+            style={styles.macrosButton}
+            onPress={() => router.push('/food-journal')}
+          >
             <Text style={styles.macrosButtonText}>Set daily goal</Text>
           </TouchableOpacity>
         </View>
@@ -220,11 +183,80 @@ export default function CoachingClientView() {
     </View>
   );
 
+  const renderAchievementsTab = () => {
+    const achievements = [
+      { name: '7-Day Streak', icon: '🔥', completed: false, progress: 3 },
+      { name: 'First Workout', icon: '💪', completed: true, progress: 1 },
+      { name: '100 Workouts', icon: '🏆', completed: false, progress: 23 },
+    ];
+
+    return (
+      <>
+        {/* Achievement Progress */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Your Progress</Text>
+            <Trophy size={24} color={colors.warning} />
+          </View>
+          
+          <Text style={styles.achievementSummary}>
+            You've unlocked 1 out of 3 achievements. Keep going!
+          </Text>
+          
+          <View style={styles.achievementProgressBar}>
+            <View style={[styles.achievementProgress, { width: '33.33%' }]} />
+          </View>
+        </View>
+
+        {/* Achievement List */}
+        <Text style={styles.sectionTitle}>Achievements</Text>
+        
+        {achievements.map((achievement, index) => (
+          <View key={index} style={styles.achievementCard}>
+            <View style={styles.achievementIcon}>
+              <Text style={styles.achievementEmoji}>{achievement.icon}</Text>
+            </View>
+            
+            <View style={styles.achievementInfo}>
+              <Text style={styles.achievementName}>{achievement.name}</Text>
+              <Text style={styles.achievementProgressText}>
+                {achievement.completed 
+                  ? 'Completed!' 
+                  : `${achievement.progress}/${achievement.name === '7-Day Streak' ? 7 : achievement.name === '100 Workouts' ? 100 : 1}`
+                }
+              </Text>
+            </View>
+            
+            {achievement.completed && (
+              <View style={styles.completedBadge}>
+                <Text style={styles.completedText}>✓</Text>
+              </View>
+            )}
+          </View>
+        ))}
+      </>
+    );
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading your training schedule...</Text>
+          <Text style={styles.loadingText}>Loading your coaching data...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (error) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorTitle}>Unable to load data</Text>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={refreshData}>
+            <Text style={styles.retryButtonText}>Try Again</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -254,7 +286,13 @@ export default function CoachingClientView() {
         </View>
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.scrollView} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        }
+      >
         {selectedTab === 'workouts' ? (
           <>
             {/* Weekly Training Calendar */}
@@ -268,52 +306,33 @@ export default function CoachingClientView() {
 
             {/* Resources Section */}
             {renderResourcesSection()}
-          </>
-        ) : (
-          <>
-            {/* Achievement Progress */}
-            <View style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>Your Progress</Text>
-                <Trophy size={24} color={colors.warning} />
-              </View>
-              
-              <Text style={styles.achievementSummary}>
-                You've unlocked 1 out of 3 achievements. Keep going!
-              </Text>
-              
-              <View style={styles.achievementProgressBar}>
-                <View style={[styles.achievementProgress, { width: '33.33%' }]} />
-              </View>
-            </View>
 
-            {/* Achievement List */}
-            <Text style={styles.sectionTitle}>Achievements</Text>
-            
-            {achievements.map((achievement, index) => (
-              <View key={index} style={styles.achievementCard}>
-                <View style={styles.achievementIcon}>
-                  <Text style={styles.achievementEmoji}>{achievement.icon}</Text>
+            {/* Trainer/Team Info */}
+            {data && 'clientAssignment' in data && data.clientAssignment && (
+              <View style={styles.card}>
+                <View style={styles.cardHeader}>
+                  <Text style={styles.cardTitle}>Your Team</Text>
+                  <Users size={24} color={colors.info} />
                 </View>
                 
-                <View style={styles.achievementInfo}>
-                  <Text style={styles.achievementName}>{achievement.name}</Text>
-                  <Text style={styles.achievementProgress}>
-                    {achievement.completed 
-                      ? 'Completed!' 
-                      : `${achievement.progress}/${achievement.name === '7-Day Streak' ? 7 : achievement.name === '100 Workouts' ? 100 : 1}`
-                    }
-                  </Text>
-                </View>
+                {data.clientAssignment.trainer && (
+                  <View style={styles.teamMember}>
+                    <Text style={styles.teamMemberRole}>Trainer</Text>
+                    <Text style={styles.teamMemberName}>{data.clientAssignment.trainer.full_name}</Text>
+                  </View>
+                )}
                 
-                {achievement.completed && (
-                  <View style={styles.completedBadge}>
-                    <Text style={styles.completedText}>✓</Text>
+                {data.clientAssignment.nutritionist && (
+                  <View style={styles.teamMember}>
+                    <Text style={styles.teamMemberRole}>Nutritionist</Text>
+                    <Text style={styles.teamMemberName}>{data.clientAssignment.nutritionist.full_name}</Text>
                   </View>
                 )}
               </View>
-            ))}
+            )}
           </>
+        ) : (
+          renderAchievementsTab()
         )}
 
         <View style={{ height: 100 }} />
@@ -336,6 +355,38 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontFamily: 'Inter-Regular',
     fontSize: 16,
     color: colors.textSecondary,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  errorTitle: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 20,
+    marginBottom: 8,
+    textAlign: 'center',
+    color: colors.text,
+  },
+  errorText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 24,
+    color: colors.textSecondary,
+    marginBottom: 24,
+  },
+  retryButton: {
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+  },
+  retryButtonText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 16,
+    color: '#FFFFFF',
   },
   header: {
     paddingHorizontal: 20,
@@ -631,7 +682,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 16,
     color: colors.text,
   },
-  achievementProgress: {
+  achievementProgressText: {
     fontFamily: 'Inter-Regular',
     fontSize: 13,
     color: colors.textSecondary,
@@ -649,5 +700,19 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontFamily: 'Inter-Bold',
+  },
+  teamMember: {
+    marginBottom: 12,
+  },
+  teamMemberRole: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: 2,
+  },
+  teamMemberName: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 16,
+    color: colors.text,
   },
 });

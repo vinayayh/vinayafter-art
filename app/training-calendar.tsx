@@ -30,6 +30,7 @@ import {
 import { useColorScheme, getColors } from '@/hooks/useColorScheme';
 import { router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import { getClientTrainingSessions } from '@/lib/trainingSessionQueries';
 
 interface WorkoutSession {
   id: string;

@@ -28,6 +28,7 @@ import { useColorScheme, getColors } from '../../hooks/useColorScheme';
 import { router } from 'expo-router';
 import { useTodayDataNew } from '../../hooks/useTodayDataNew';
 import { getWorkoutTemplates, WorkoutTemplate } from '../../lib/workoutTemplates';
+import { getClientTrainingSessions } from '../../lib/trainingSessionQueries';
 import { supabase } from '../../lib/supabase';
 
 const { width } = Dimensions.get('window');

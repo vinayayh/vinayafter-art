@@ -8,32 +8,57 @@ import {
   TextInput,
   Alert,
   Modal,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { 
   ArrowLeft, 
-  ChevronDown,
+  Plus, 
   Calendar,
+  Clock,
+  User,
+  ChevronDown,
   X,
-  Plus,
+  Save,
+  Copy,
   Trash2,
-  Copy
+  Users,
+  Dumbbell,
+  RefreshCw
 } from 'lucide-react-native';
 import { useColorScheme, getColors } from '@/hooks/useColorScheme';
 import { router, useLocalSearchParams } from 'expo-router';
-import { WorkoutPlan, Client, WorkoutTemplate, DayOfWeek } from '@/types/workout';
-import { savePlan, getPlan, getClients, getTemplates } from '@/utils/storage';
-import { generateId, getWeekDates } from '@/utils/workoutUtils';
-
-const daysOfWeek: DayOfWeek[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+import DateTimePicker from '@react-native-community/datetimepicker';
+import {
+  getTrainerClients,
+  getWorkoutTemplatesForPlans,
+  createWorkoutPlan,
+  updateWorkoutPlan,
+  getWorkoutPlan,
+  createPlanSessions,
+  deletePlanSessions,
+  createSampleClientAssignment,
+  ClientProfile,
+  WorkoutTemplateForPlan,
+  WorkoutPlan,
+} from '@/lib/planDatabase';
 
 type ScheduleType = 'weekly' | 'monthly' | 'custom';
+type DayOfWeek = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday';
 
-interface CustomScheduleDay {
+interface WeeklySchedule {
+  [key in DayOfWeek]: string | null;
+}
+
+interface MonthlySchedule {
+  [weekNumber: number]: WeeklySchedule;
+}
+
+interface CustomWorkout {
   id: string;
   date: string;
   templateId: string | null;
-  label?: string;
+  label: string;
 }
 
 export default function CreatePlanScreen() {
@@ -42,18 +67,20 @@ export default function CreatePlanScreen() {
   const styles = createStyles(colors);
   const { edit } = useLocalSearchParams();
 
+  // Form state
   const [planName, setPlanName] = useState('');
-  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
-  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [planDescription, setPlanDescription] = useState('');
+  const [selectedClient, setSelectedClient] = useState<ClientProfile | null>(null);
+  const [scheduleType, setScheduleType] = useState<ScheduleType>('weekly');
+  const [startDate, setStartDate] = useState(new Date());
   const [endDate, setEndDate] = useState(() => {
     const date = new Date();
-    date.setDate(date.getDate() + 28); // 4 weeks default
-    return date.toISOString().split('T')[0];
+    date.setMonth(date.getMonth() + 1);
+    return date;
   });
-  
-  // Schedule type and data
-  const [scheduleType, setScheduleType] = useState<ScheduleType>('weekly');
-  const [weeklySchedule, setWeeklySchedule] = useState<{ [key in DayOfWeek]: string | null }>({
+
+  // Schedule data
+  const [weeklySchedule, setWeeklySchedule] = useState<WeeklySchedule>({
     Monday: null,
     Tuesday: null,
     Wednesday: null,
@@ -62,158 +89,160 @@ export default function CreatePlanScreen() {
     Saturday: null,
     Sunday: null,
   });
-  const [monthlySchedule, setMonthlySchedule] = useState<{ [week: number]: { [key in DayOfWeek]: string | null } }>({
-    1: { Monday: null, Tuesday: null, Wednesday: null, Thursday: null, Friday: null, Saturday: null, Sunday: null },
-    2: { Monday: null, Tuesday: null, Wednesday: null, Thursday: null, Friday: null, Saturday: null, Sunday: null },
-    3: { Monday: null, Tuesday: null, Wednesday: null, Thursday: null, Friday: null, Saturday: null, Sunday: null },
-    4: { Monday: null, Tuesday: null, Wednesday: null, Thursday: null, Friday: null, Saturday: null, Sunday: null },
+  const [monthlySchedule, setMonthlySchedule] = useState<MonthlySchedule>({
+    1: { ...weeklySchedule },
+    2: { ...weeklySchedule },
+    3: { ...weeklySchedule },
+    4: { ...weeklySchedule },
   });
-  const [customSchedule, setCustomSchedule] = useState<CustomScheduleDay[]>([]);
+  const [customWorkouts, setCustomWorkouts] = useState<CustomWorkout[]>([]);
 
-  const [clients, setClients] = useState<Client[]>([]);
-  const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
+  // Data state
+  const [clients, setClients] = useState<ClientProfile[]>([]);
+  const [templates, setTemplates] = useState<WorkoutTemplateForPlan[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  // Modal state
   const [showClientPicker, setShowClientPicker] = useState(false);
-  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [showScheduleTypePicker, setShowScheduleTypePicker] = useState(false);
-  const [selectedDay, setSelectedDay] = useState<DayOfWeek | null>(null);
-  const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
-  const [selectedCustomDay, setSelectedCustomDay] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+  const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
+
+  // Template picker state
+  const [templatePickerContext, setTemplatePickerContext] = useState<{
+    type: 'weekly' | 'monthly' | 'custom';
+    day?: DayOfWeek;
+    week?: number;
+    customId?: string;
+  } | null>(null);
+
+  const [customWorkoutDate, setCustomWorkoutDate] = useState(new Date());
 
   const isEditing = !!edit;
 
   useEffect(() => {
-    loadData();
-    if (isEditing) {
-      loadPlan();
-    }
+    loadInitialData();
   }, []);
 
-  const loadData = async () => {
+  const loadInitialData = async () => {
     try {
-      const [loadedClients, loadedTemplates] = await Promise.all([
-        getClients(),
-        getTemplates()
+      setLoading(true);
+      console.log('🔄 Loading initial data...');
+      
+      // Load clients and templates in parallel
+      const [clientsData, templatesData] = await Promise.all([
+        getTrainerClients(),
+        getWorkoutTemplatesForPlans(),
       ]);
-      setClients(loadedClients);
-      setTemplates(loadedTemplates);
+
+      console.log('👥 Loaded clients:', clientsData);
+      console.log('📋 Loaded templates:', templatesData);
+
+      setClients(clientsData);
+      setTemplates(templatesData);
+
+      // If no clients found, show helpful message
+      if (clientsData.length === 0) {
+        console.log('⚠️ No clients found, showing alert');
+        Alert.alert(
+          'No Clients Found',
+          'You don\'t have any assigned clients yet. Would you like to create a sample client assignment for testing?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { 
+              text: 'Create Sample', 
+              onPress: async () => {
+                const success = await createSampleClientAssignment();
+                if (success) {
+                  // Reload clients
+                  const updatedClients = await getTrainerClients();
+                  setClients(updatedClients);
+                  Alert.alert('Success', 'Sample client assignment created!');
+                } else {
+                  Alert.alert('Error', 'Failed to create sample assignment. Please check if there are any clients in the system.');
+                }
+              }
+            }
+          ]
+        );
+      }
+
+      // Load existing plan if editing
+      if (isEditing && typeof edit === 'string') {
+        await loadExistingPlan(edit);
+      }
+
     } catch (error) {
-      console.error('Error loading data:', error);
+      console.error('💥 Error loading initial data:', error);
+      Alert.alert('Error', 'Failed to load data. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const loadPlan = async () => {
+  const loadExistingPlan = async (planId: string) => {
     try {
-      const planId = edit as string;
-      const plan = await getPlan(planId);
+      const plan = await getWorkoutPlan(planId);
       if (plan) {
         setPlanName(plan.name);
-        setStartDate(plan.startDate);
-        setEndDate(plan.endDate);
-        setWeeklySchedule(plan.schedule as any);
-        
-        const client = clients.find(c => c.id === plan.clientId);
+        setPlanDescription(plan.description || '');
+        setScheduleType(plan.schedule_type);
+        setStartDate(new Date(plan.start_date));
+        setEndDate(new Date(plan.end_date));
+
+        // Find and set the client
+        const client = clients.find(c => c.id === plan.client_id);
         if (client) {
           setSelectedClient(client);
         }
+
+        // Load schedule data based on type
+        if (plan.schedule_data) {
+          switch (plan.schedule_type) {
+            case 'weekly':
+              setWeeklySchedule(plan.schedule_data);
+              break;
+            case 'monthly':
+              setMonthlySchedule(plan.schedule_data);
+              break;
+            case 'custom':
+              setCustomWorkouts(plan.schedule_data);
+              break;
+          }
+        }
       }
     } catch (error) {
-      console.error('Error loading plan:', error);
-      Alert.alert('Error', 'Failed to load plan');
+      console.error('Error loading existing plan:', error);
+      Alert.alert('Error', 'Failed to load plan data');
     }
   };
 
-  const handleDayPress = (day: DayOfWeek, week?: number) => {
-    setSelectedDay(day);
-    setSelectedWeek(week || null);
-    setShowTemplatePicker(true);
-  };
-
-  const handleCustomDayPress = (dayId: string) => {
-    setSelectedCustomDay(dayId);
-    setShowTemplatePicker(true);
-  };
-
-  const handleTemplateSelect = (template: WorkoutTemplate | null) => {
-    if (scheduleType === 'weekly' && selectedDay) {
-      setWeeklySchedule(prev => ({
-        ...prev,
-        [selectedDay]: template?.id || null
-      }));
-    } else if (scheduleType === 'monthly' && selectedDay && selectedWeek) {
-      setMonthlySchedule(prev => ({
-        ...prev,
-        [selectedWeek]: {
-          ...prev[selectedWeek],
-          [selectedDay]: template?.id || null
-        }
-      }));
-    } else if (scheduleType === 'custom' && selectedCustomDay) {
-      setCustomSchedule(prev => prev.map(day => 
-        day.id === selectedCustomDay 
-          ? { ...day, templateId: template?.id || null }
-          : day
-      ));
-    }
-    
-    setShowTemplatePicker(false);
-    setSelectedDay(null);
-    setSelectedWeek(null);
-    setSelectedCustomDay(null);
-  };
-
-  const addCustomDay = () => {
-    const newDay: CustomScheduleDay = {
-      id: generateId(),
-      date: new Date().toISOString().split('T')[0],
-      templateId: null,
-      label: `Day ${customSchedule.length + 1}`,
-    };
-    setCustomSchedule(prev => [...prev, newDay]);
-  };
-
-  const removeCustomDay = (dayId: string) => {
-    setCustomSchedule(prev => prev.filter(day => day.id !== dayId));
-  };
-
-  const updateCustomDayDate = (dayId: string, date: string) => {
-    setCustomSchedule(prev => prev.map(day => 
-      day.id === dayId ? { ...day, date } : day
-    ));
-  };
-
-  const updateCustomDayLabel = (dayId: string, label: string) => {
-    setCustomSchedule(prev => prev.map(day => 
-      day.id === dayId ? { ...day, label } : day
-    ));
-  };
-
-  const copyWeekToAll = (sourceWeek: number) => {
-    const sourceSchedule = monthlySchedule[sourceWeek];
-    setMonthlySchedule(prev => ({
-      1: sourceSchedule,
-      2: sourceSchedule,
-      3: sourceSchedule,
-      4: sourceSchedule,
-    }));
-  };
-
-  const getTemplateName = (templateId: string | null): string => {
-    if (!templateId) return 'Rest Day';
-    const template = templates.find(t => t.id === templateId);
-    return template?.name || 'Unknown Template';
-  };
-
-  const getScheduleTypeLabel = (type: ScheduleType): string => {
-    switch (type) {
-      case 'weekly': return 'Weekly Repeat';
-      case 'monthly': return 'Monthly Plan';
-      case 'custom': return 'Custom Schedule';
-      default: return 'Weekly Repeat';
+  const handleRefreshClients = async () => {
+    try {
+      console.log('🔄 Refreshing clients...');
+      const clientsData = await getTrainerClients();
+      setClients(clientsData);
+      
+      if (clientsData.length === 0) {
+        Alert.alert(
+          'No Clients Found',
+          'Still no clients found. Make sure you have active client assignments in the database.',
+          [{ text: 'OK' }]
+        );
+      } else {
+        Alert.alert('Success', `Found ${clientsData.length} client(s)`);
+      }
+    } catch (error) {
+      console.error('Error refreshing clients:', error);
+      Alert.alert('Error', 'Failed to refresh clients');
     }
   };
 
   const handleSavePlan = async () => {
+    // Validation
     if (!planName.trim()) {
       Alert.alert('Error', 'Please enter a plan name');
       return;
@@ -224,137 +253,313 @@ export default function CreatePlanScreen() {
       return;
     }
 
-    if (new Date(endDate) <= new Date(startDate)) {
+    if (startDate >= endDate) {
       Alert.alert('Error', 'End date must be after start date');
       return;
     }
 
-    // Validate schedule based on type
-    let finalSchedule: any = {};
-    if (scheduleType === 'weekly') {
-      finalSchedule = weeklySchedule;
-    } else if (scheduleType === 'monthly') {
-      finalSchedule = monthlySchedule;
-    } else if (scheduleType === 'custom') {
-      if (customSchedule.length === 0) {
-        Alert.alert('Error', 'Please add at least one day to your custom schedule');
-        return;
-      }
-      finalSchedule = customSchedule;
+    // Validate schedule has at least one workout
+    let hasWorkouts = false;
+    switch (scheduleType) {
+      case 'weekly':
+        hasWorkouts = Object.values(weeklySchedule).some(templateId => templateId !== null);
+        break;
+      case 'monthly':
+        hasWorkouts = Object.values(monthlySchedule).some(week =>
+          Object.values(week).some(templateId => templateId !== null)
+        );
+        break;
+      case 'custom':
+        hasWorkouts = customWorkouts.length > 0;
+        break;
     }
 
-    setLoading(true);
+    if (!hasWorkouts) {
+      Alert.alert('Error', 'Please add at least one workout to the schedule');
+      return;
+    }
+
     try {
-      const plan: WorkoutPlan = {
-        id: isEditing ? (edit as string) : generateId(),
-        clientId: selectedClient.id,
-        trainerId: 'current-user', // TODO: Get from user context
+      setSaving(true);
+
+      const planData = {
+        client_id: selectedClient.id,
         name: planName.trim(),
-        startDate,
-        endDate,
-        schedule: finalSchedule,
-        createdAt: isEditing ? new Date().toISOString() : new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        description: planDescription.trim() || undefined,
+        start_date: startDate.toISOString().split('T')[0],
+        end_date: endDate.toISOString().split('T')[0],
+        schedule_type: scheduleType,
+        schedule_data: getScheduleData(),
       };
 
-      await savePlan(plan);
-      Alert.alert(
-        'Success',
-        `Plan ${isEditing ? 'updated' : 'created'} successfully!`,
-        [{ text: 'OK', onPress: () => router.back() }]
-      );
+      let savedPlan: WorkoutPlan | null = null;
+
+      if (isEditing && typeof edit === 'string') {
+        savedPlan = await updateWorkoutPlan(edit, planData);
+      } else {
+        savedPlan = await createWorkoutPlan(planData);
+      }
+
+      if (savedPlan) {
+        // Generate plan sessions
+        await generatePlanSessions(savedPlan);
+
+        Alert.alert(
+          'Success',
+          `Plan ${isEditing ? 'updated' : 'created'} successfully!`,
+          [{ text: 'OK', onPress: () => router.back() }]
+        );
+      } else {
+        Alert.alert('Error', 'Failed to save plan');
+      }
     } catch (error) {
       console.error('Error saving plan:', error);
       Alert.alert('Error', 'Failed to save plan');
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
+  const getScheduleData = () => {
+    switch (scheduleType) {
+      case 'weekly':
+        return weeklySchedule;
+      case 'monthly':
+        return monthlySchedule;
+      case 'custom':
+        return customWorkouts;
+      default:
+        return {};
+    }
+  };
+
+  const generatePlanSessions = async (plan: WorkoutPlan) => {
+    try {
+      // Delete existing sessions if updating
+      if (isEditing) {
+        await deletePlanSessions(plan.id);
+      }
+
+      const sessions: any[] = [];
+      const start = new Date(plan.start_date);
+      const end = new Date(plan.end_date);
+
+      switch (plan.schedule_type) {
+        case 'weekly':
+          generateWeeklySessions(sessions, start, end, plan.schedule_data, plan.id);
+          break;
+        case 'monthly':
+          generateMonthlySessions(sessions, start, end, plan.schedule_data, plan.id);
+          break;
+        case 'custom':
+          generateCustomSessions(sessions, plan.schedule_data, plan.id);
+          break;
+      }
+
+      if (sessions.length > 0) {
+        await createPlanSessions(sessions);
+      }
+    } catch (error) {
+      console.error('Error generating plan sessions:', error);
+    }
+  };
+
+  const generateWeeklySessions = (sessions: any[], start: Date, end: Date, schedule: WeeklySchedule, planId: string) => {
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const current = new Date(start);
+
+    while (current <= end) {
+      const dayName = dayNames[current.getDay()] as DayOfWeek;
+      const templateId = schedule[dayName];
+
+      if (templateId) {
+        sessions.push({
+          plan_id: planId,
+          template_id: templateId,
+          scheduled_date: current.toISOString().split('T')[0],
+          day_of_week: dayName,
+          status: 'scheduled',
+        });
+      }
+
+      current.setDate(current.getDate() + 1);
+    }
+  };
+
+  const generateMonthlySessions = (sessions: any[], start: Date, end: Date, schedule: MonthlySchedule, planId: string) => {
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const current = new Date(start);
+
+    while (current <= end) {
+      const weekOfMonth = Math.ceil(current.getDate() / 7);
+      const weekSchedule = schedule[weekOfMonth];
+
+      if (weekSchedule) {
+        const dayName = dayNames[current.getDay()] as DayOfWeek;
+        const templateId = weekSchedule[dayName];
+
+        if (templateId) {
+          sessions.push({
+            plan_id: planId,
+            template_id: templateId,
+            scheduled_date: current.toISOString().split('T')[0],
+            day_of_week: dayName,
+            week_number: weekOfMonth,
+            status: 'scheduled',
+          });
+        }
+      }
+
+      current.setDate(current.getDate() + 1);
+    }
+  };
+
+  const generateCustomSessions = (sessions: any[], customWorkouts: CustomWorkout[], planId: string) => {
+    customWorkouts.forEach(workout => {
+      if (workout.templateId) {
+        sessions.push({
+          plan_id: planId,
+          template_id: workout.templateId,
+          scheduled_date: workout.date,
+          status: 'scheduled',
+          notes: workout.label,
+        });
+      }
+    });
+  };
+
+  const handleTemplateSelect = (templateId: string | null) => {
+    if (!templatePickerContext) return;
+
+    const { type, day, week, customId } = templatePickerContext;
+
+    switch (type) {
+      case 'weekly':
+        if (day) {
+          setWeeklySchedule(prev => ({ ...prev, [day]: templateId }));
+        }
+        break;
+      case 'monthly':
+        if (day && week) {
+          setMonthlySchedule(prev => ({
+            ...prev,
+            [week]: { ...prev[week], [day]: templateId }
+          }));
+        }
+        break;
+      case 'custom':
+        if (customId) {
+          setCustomWorkouts(prev =>
+            prev.map(workout =>
+              workout.id === customId ? { ...workout, templateId } : workout
+            )
+          );
+        }
+        break;
+    }
+
+    setShowTemplatePicker(false);
+    setTemplatePickerContext(null);
+  };
+
+  const openTemplatePicker = (context: typeof templatePickerContext) => {
+    setTemplatePickerContext(context);
+    setShowTemplatePicker(true);
+  };
+
+  const addCustomWorkout = () => {
+    setShowCustomDatePicker(true);
+  };
+
+  const handleCustomDateSelect = (event: any, selectedDate?: Date) => {
+    setShowCustomDatePicker(false);
+    if (selectedDate) {
+      const newWorkout: CustomWorkout = {
+        id: Date.now().toString(),
+        date: selectedDate.toISOString().split('T')[0],
+        templateId: null,
+        label: `Workout ${customWorkouts.length + 1}`,
+      };
+      setCustomWorkouts(prev => [...prev, newWorkout].sort((a, b) => a.date.localeCompare(b.date)));
+    }
+  };
+
+  const removeCustomWorkout = (id: string) => {
+    setCustomWorkouts(prev => prev.filter(workout => workout.id !== id));
+  };
+
+  const copyWeekToAll = (sourceWeek: number) => {
+    const sourceSchedule = monthlySchedule[sourceWeek];
+    setMonthlySchedule(prev => ({
+      1: { ...sourceSchedule },
+      2: { ...sourceSchedule },
+      3: { ...sourceSchedule },
+      4: { ...sourceSchedule },
+    }));
+  };
+
+  const getTemplateName = (templateId: string | null): string => {
+    if (!templateId) return 'Rest Day';
+    const template = templates.find(t => t.id === templateId);
+    return template ? template.name : 'Unknown Template';
+  };
+
   const renderWeeklySchedule = () => {
-    const renderDayCard = (day: DayOfWeek) => {
-      const templateId = weeklySchedule[day];
-      const hasWorkout = templateId !== null;
-      
-      return (
-        <TouchableOpacity
-          key={day}
-          style={[
-            styles.dayCard,
-            hasWorkout ? styles.activeDayCard : styles.restDayCard
-          ]}
-          onPress={() => handleDayPress(day)}
-        >
-          <Text style={[
-            styles.dayName,
-            hasWorkout ? styles.activeDayName : styles.restDayName
-          ]}>
-            {day}
-          </Text>
-          <Text style={[
-            styles.templateName,
-            hasWorkout ? styles.activeTemplateName : styles.restTemplateName
-          ]} numberOfLines={2}>
-            {getTemplateName(templateId)}
-          </Text>
-        </TouchableOpacity>
-      );
-    };
+    const days: DayOfWeek[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
     return (
-      <View style={styles.weekGrid}>
-        {daysOfWeek.map(renderDayCard)}
+      <View style={styles.scheduleContainer}>
+        <Text style={styles.scheduleTitle}>Weekly Schedule</Text>
+        {days.map(day => (
+          <View key={day} style={styles.dayRow}>
+            <Text style={styles.dayLabel}>{day}</Text>
+            <TouchableOpacity
+              style={styles.templateButton}
+              onPress={() => openTemplatePicker({ type: 'weekly', day })}
+            >
+              <Text style={styles.templateButtonText}>
+                {getTemplateName(weeklySchedule[day])}
+              </Text>
+              <ChevronDown size={16} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+        ))}
       </View>
     );
   };
 
   const renderMonthlySchedule = () => {
+    const days: DayOfWeek[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
     return (
-      <View style={styles.monthlyContainer}>
-        {[1, 2, 3, 4].map((week) => (
+      <View style={styles.scheduleContainer}>
+        <Text style={styles.scheduleTitle}>Monthly Schedule</Text>
+        {[1, 2, 3, 4].map(week => (
           <View key={week} style={styles.weekContainer}>
             <View style={styles.weekHeader}>
               <Text style={styles.weekTitle}>Week {week}</Text>
-              <View style={styles.weekActions}>
+              <TouchableOpacity
+                style={styles.copyButton}
+                onPress={() => copyWeekToAll(week)}
+              >
+                <Copy size={16} color={colors.primary} />
+                <Text style={styles.copyButtonText}>Copy to All</Text>
+              </TouchableOpacity>
+            </View>
+            {days.map(day => (
+              <View key={`${week}-${day}`} style={styles.dayRow}>
+                <Text style={styles.dayLabel}>{day}</Text>
                 <TouchableOpacity
-                  style={styles.weekActionButton}
-                  onPress={() => copyWeekToAll(week)}
+                  style={styles.templateButton}
+                  onPress={() => openTemplatePicker({ type: 'monthly', day, week })}
                 >
-                  <Copy size={14} color={colors.primary} />
-                  <Text style={styles.weekActionText}>Copy to All</Text>
+                  <Text style={styles.templateButtonText}>
+                    {getTemplateName(monthlySchedule[week][day])}
+                  </Text>
+                  <ChevronDown size={16} color={colors.textSecondary} />
                 </TouchableOpacity>
               </View>
-            </View>
-            <View style={styles.weekGrid}>
-              {daysOfWeek.map((day) => {
-                const templateId = monthlySchedule[week][day];
-                const hasWorkout = templateId !== null;
-                
-                return (
-                  <TouchableOpacity
-                    key={`${week}-${day}`}
-                    style={[
-                      styles.monthlyDayCard,
-                      hasWorkout ? styles.activeDayCard : styles.restDayCard
-                    ]}
-                    onPress={() => handleDayPress(day, week)}
-                  >
-                    <Text style={[
-                      styles.monthlyDayName,
-                      hasWorkout ? styles.activeDayName : styles.restDayName
-                    ]}>
-                      {day.slice(0, 3)}
-                    </Text>
-                    <Text style={[
-                      styles.monthlyTemplateName,
-                      hasWorkout ? styles.activeTemplateName : styles.restTemplateName
-                    ]} numberOfLines={1}>
-                      {getTemplateName(templateId)}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+            ))}
           </View>
         ))}
       </View>
@@ -363,64 +568,41 @@ export default function CreatePlanScreen() {
 
   const renderCustomSchedule = () => {
     return (
-      <View style={styles.customContainer}>
+      <View style={styles.scheduleContainer}>
         <View style={styles.customHeader}>
-          <Text style={styles.customTitle}>Custom Days ({customSchedule.length})</Text>
-          <TouchableOpacity style={styles.addDayButton} onPress={addCustomDay}>
+          <Text style={styles.scheduleTitle}>Custom Schedule</Text>
+          <TouchableOpacity style={styles.addButton} onPress={addCustomWorkout}>
             <Plus size={16} color={colors.primary} />
-            <Text style={styles.addDayText}>Add Day</Text>
+            <Text style={styles.addButtonText}>Add Workout</Text>
           </TouchableOpacity>
         </View>
 
-        {customSchedule.length === 0 ? (
+        {customWorkouts.length === 0 ? (
           <View style={styles.emptyCustom}>
-            <Text style={styles.emptyCustomText}>No custom days added yet</Text>
-            <TouchableOpacity style={styles.addFirstDayButton} onPress={addCustomDay}>
-              <Text style={styles.addFirstDayText}>Add First Day</Text>
-            </TouchableOpacity>
+            <Text style={styles.emptyCustomText}>No custom workouts added yet</Text>
           </View>
         ) : (
-          customSchedule.map((day) => (
-            <View key={day.id} style={styles.customDayCard}>
-              <View style={styles.customDayHeader}>
-                <View style={styles.customDayInputs}>
-                  <TextInput
-                    style={styles.customDayLabel}
-                    value={day.label}
-                    onChangeText={(text) => updateCustomDayLabel(day.id, text)}
-                    placeholder="Day label"
-                    placeholderTextColor={colors.textTertiary}
-                  />
-                  <TextInput
-                    style={styles.customDayDate}
-                    value={day.date}
-                    onChangeText={(text) => updateCustomDayDate(day.id, text)}
-                    placeholder="YYYY-MM-DD"
-                    placeholderTextColor={colors.textTertiary}
-                  />
-                </View>
+          customWorkouts.map(workout => (
+            <View key={workout.id} style={styles.customWorkoutRow}>
+              <View style={styles.customWorkoutInfo}>
+                <Text style={styles.customWorkoutDate}>
+                  {new Date(workout.date).toLocaleDateString()}
+                </Text>
                 <TouchableOpacity
-                  style={styles.removeDayButton}
-                  onPress={() => removeCustomDay(day.id)}
+                  style={styles.templateButton}
+                  onPress={() => openTemplatePicker({ type: 'custom', customId: workout.id })}
                 >
-                  <Trash2 size={16} color={colors.error} />
+                  <Text style={styles.templateButtonText}>
+                    {getTemplateName(workout.templateId)}
+                  </Text>
+                  <ChevronDown size={16} color={colors.textSecondary} />
                 </TouchableOpacity>
               </View>
-              
               <TouchableOpacity
-                style={[
-                  styles.customWorkoutSelector,
-                  day.templateId ? styles.activeCustomWorkout : styles.restCustomWorkout
-                ]}
-                onPress={() => handleCustomDayPress(day.id)}
+                style={styles.removeButton}
+                onPress={() => removeCustomWorkout(workout.id)}
               >
-                <Text style={[
-                  styles.customWorkoutText,
-                  day.templateId ? styles.activeCustomWorkoutText : styles.restCustomWorkoutText
-                ]}>
-                  {getTemplateName(day.templateId)}
-                </Text>
-                <ChevronDown size={16} color={colors.textSecondary} />
+                <Trash2 size={16} color={colors.error} />
               </TouchableOpacity>
             </View>
           ))
@@ -429,29 +611,40 @@ export default function CreatePlanScreen() {
     );
   };
 
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading plan data...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <ArrowLeft size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.title}>
-          {isEditing ? 'Edit Plan' : 'Create Plan'}
+          {isEditing ? 'Edit Plan' : 'Create Workout Plan'}
         </Text>
         <TouchableOpacity
-          style={[styles.saveButton, loading && styles.saveButtonDisabled]}
+          style={[styles.saveButton, saving && styles.saveButtonDisabled]}
           onPress={handleSavePlan}
-          disabled={loading}
+          disabled={saving}
         >
+          <Save size={16} color="#FFFFFF" />
           <Text style={styles.saveButtonText}>
-            {loading ? 'Saving...' : 'Save'}
+            {saving ? 'Saving...' : 'Save'}
           </Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Plan Information */}
+        {/* Basic Information */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Plan Information</Text>
           
@@ -467,79 +660,112 @@ export default function CreatePlanScreen() {
           </View>
 
           <View style={styles.formField}>
-            <Text style={styles.fieldLabel}>Client *</Text>
+            <Text style={styles.fieldLabel}>Description</Text>
+            <TextInput
+              style={[styles.textInput, styles.textArea]}
+              value={planDescription}
+              onChangeText={setPlanDescription}
+              placeholder="Describe this workout plan..."
+              placeholderTextColor={colors.textTertiary}
+              multiline
+              numberOfLines={3}
+            />
+          </View>
+        </View>
+
+        {/* Client Selection */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Client Assignment *</Text>
+            <TouchableOpacity 
+              style={styles.refreshButton}
+              onPress={handleRefreshClients}
+            >
+              <RefreshCw size={16} color={colors.primary} />
+            </TouchableOpacity>
+          </View>
+          
+          {clients.length === 0 ? (
+            <View style={styles.noClientsContainer}>
+              <Users size={48} color={colors.textTertiary} />
+              <Text style={styles.noClientsTitle}>No Clients Found</Text>
+              <Text style={styles.noClientsText}>
+                You don't have any assigned clients yet. Make sure you have active client assignments in the database.
+              </Text>
+              <TouchableOpacity 
+                style={styles.refreshClientsButton}
+                onPress={handleRefreshClients}
+              >
+                <RefreshCw size={16} color={colors.primary} />
+                <Text style={styles.refreshClientsText}>Refresh Clients</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
             <TouchableOpacity
               style={styles.picker}
               onPress={() => setShowClientPicker(true)}
             >
+              <User size={20} color={colors.textSecondary} />
               <Text style={[
                 styles.pickerText,
                 !selectedClient && styles.placeholderText
               ]}>
-                {selectedClient?.name || 'Select a client'}
+                {selectedClient ? selectedClient.full_name : 'Select a client'}
               </Text>
               <ChevronDown size={20} color={colors.textSecondary} />
             </TouchableOpacity>
-          </View>
-
-          <View style={styles.formRow}>
-            <View style={styles.formFieldHalf}>
-              <Text style={styles.fieldLabel}>Start Date</Text>
-              <TextInput
-                style={styles.textInput}
-                value={startDate}
-                onChangeText={setStartDate}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={colors.textTertiary}
-              />
-            </View>
-
-            <View style={styles.formFieldHalf}>
-              <Text style={styles.fieldLabel}>End Date</Text>
-              <TextInput
-                style={styles.textInput}
-                value={endDate}
-                onChangeText={setEndDate}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={colors.textTertiary}
-              />
-            </View>
-          </View>
+          )}
         </View>
 
         {/* Schedule Type */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Schedule Type</Text>
+          <Text style={styles.sectionTitle}>Schedule Type *</Text>
           <TouchableOpacity
             style={styles.picker}
             onPress={() => setShowScheduleTypePicker(true)}
           >
+            <Calendar size={20} color={colors.textSecondary} />
             <Text style={styles.pickerText}>
-              {getScheduleTypeLabel(scheduleType)}
+              {scheduleType === 'weekly' ? 'Weekly Repeat' :
+               scheduleType === 'monthly' ? 'Monthly Plan' : 'Custom Schedule'}
             </Text>
             <ChevronDown size={20} color={colors.textSecondary} />
           </TouchableOpacity>
-          
-          <Text style={styles.scheduleDescription}>
-            {scheduleType === 'weekly' && 'Same workout pattern repeats every week'}
-            {scheduleType === 'monthly' && 'Different workout patterns for each week of the month'}
-            {scheduleType === 'custom' && 'Specific workouts on specific dates'}
-          </Text>
         </View>
 
-        {/* Schedule Configuration */}
+        {/* Date Range */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            {scheduleType === 'weekly' && 'Weekly Schedule'}
-            {scheduleType === 'monthly' && 'Monthly Schedule'}
-            {scheduleType === 'custom' && 'Custom Schedule'}
-          </Text>
-          <Text style={styles.sectionSubtitle}>
-            {scheduleType === 'weekly' && 'Tap on each day to assign a workout template or set as rest day'}
-            {scheduleType === 'monthly' && 'Configure different workout patterns for each week'}
-            {scheduleType === 'custom' && 'Add specific workout days with custom dates'}
-          </Text>
-          
+          <Text style={styles.sectionTitle}>Date Range *</Text>
+          <View style={styles.dateRow}>
+            <View style={styles.dateField}>
+              <Text style={styles.fieldLabel}>Start Date</Text>
+              <TouchableOpacity
+                style={styles.dateButton}
+                onPress={() => setShowStartDatePicker(true)}
+              >
+                <Calendar size={16} color={colors.textSecondary} />
+                <Text style={styles.dateButtonText}>
+                  {startDate.toLocaleDateString()}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.dateField}>
+              <Text style={styles.fieldLabel}>End Date</Text>
+              <TouchableOpacity
+                style={styles.dateButton}
+                onPress={() => setShowEndDatePicker(true)}
+              >
+                <Calendar size={16} color={colors.textSecondary} />
+                <Text style={styles.dateButtonText}>
+                  {endDate.toLocaleDateString()}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        {/* Schedule Builder */}
+        <View style={styles.section}>
           {scheduleType === 'weekly' && renderWeeklySchedule()}
           {scheduleType === 'monthly' && renderMonthlySchedule()}
           {scheduleType === 'custom' && renderCustomSchedule()}
@@ -555,9 +781,13 @@ export default function CreatePlanScreen() {
         presentationStyle="pageSheet"
         onRequestClose={() => setShowClientPicker(false)}
       >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHandle} />
-          <Text style={styles.modalTitle}>Select Client</Text>
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Select Client</Text>
+            <TouchableOpacity onPress={() => setShowClientPicker(false)}>
+              <X size={24} color={colors.text} />
+            </TouchableOpacity>
+          </View>
           
           <ScrollView style={styles.clientList}>
             {clients.map((client) => (
@@ -572,20 +802,17 @@ export default function CreatePlanScreen() {
                   setShowClientPicker(false);
                 }}
               >
-                <Text style={styles.clientAvatar}>{client.avatar}</Text>
                 <View style={styles.clientInfo}>
-                  <Text style={styles.clientName}>{client.name}</Text>
+                  <Text style={styles.clientName}>{client.full_name}</Text>
                   <Text style={styles.clientEmail}>{client.email}</Text>
                 </View>
                 {selectedClient?.id === client.id && (
-                  <View style={styles.selectedIndicator}>
-                    <Text style={styles.selectedText}>✓</Text>
-                  </View>
+                  <Text style={styles.selectedIndicator}>✓</Text>
                 )}
               </TouchableOpacity>
             ))}
           </ScrollView>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       {/* Schedule Type Picker Modal */}
@@ -595,43 +822,42 @@ export default function CreatePlanScreen() {
         presentationStyle="pageSheet"
         onRequestClose={() => setShowScheduleTypePicker(false)}
       >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHandle} />
-          <Text style={styles.modalTitle}>Select Schedule Type</Text>
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Schedule Type</Text>
+            <TouchableOpacity onPress={() => setShowScheduleTypePicker(false)}>
+              <X size={24} color={colors.text} />
+            </TouchableOpacity>
+          </View>
           
           <View style={styles.scheduleTypeList}>
-            {(['weekly', 'monthly', 'custom'] as ScheduleType[]).map((type) => (
+            {[
+              { value: 'weekly', label: 'Weekly Repeat', description: 'Same pattern every week' },
+              { value: 'monthly', label: 'Monthly Plan', description: 'Different patterns for each week' },
+              { value: 'custom', label: 'Custom Schedule', description: 'Specific dates with custom workouts' },
+            ].map((type) => (
               <TouchableOpacity
-                key={type}
+                key={type.value}
                 style={[
                   styles.scheduleTypeOption,
-                  scheduleType === type && styles.selectedScheduleTypeOption
+                  scheduleType === type.value && styles.selectedScheduleTypeOption
                 ]}
                 onPress={() => {
-                  setScheduleType(type);
+                  setScheduleType(type.value as ScheduleType);
                   setShowScheduleTypePicker(false);
                 }}
               >
                 <View style={styles.scheduleTypeInfo}>
-                  <Text style={[
-                    styles.scheduleTypeTitle,
-                    scheduleType === type && styles.selectedScheduleTypeTitle
-                  ]}>
-                    {getScheduleTypeLabel(type)}
-                  </Text>
-                  <Text style={styles.scheduleTypeDescription}>
-                    {type === 'weekly' && 'Same workout pattern repeats every week'}
-                    {type === 'monthly' && 'Different workout patterns for each week of the month'}
-                    {type === 'custom' && 'Specific workouts on specific dates'}
-                  </Text>
+                  <Text style={styles.scheduleTypeLabel}>{type.label}</Text>
+                  <Text style={styles.scheduleTypeDescription}>{type.description}</Text>
                 </View>
-                {scheduleType === type && (
-                  <Text style={styles.selectedText}>✓</Text>
+                {scheduleType === type.value && (
+                  <Text style={styles.selectedIndicator}>✓</Text>
                 )}
               </TouchableOpacity>
             ))}
           </View>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       {/* Template Picker Modal */}
@@ -641,11 +867,13 @@ export default function CreatePlanScreen() {
         presentationStyle="pageSheet"
         onRequestClose={() => setShowTemplatePicker(false)}
       >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHandle} />
-          <Text style={styles.modalTitle}>
-            Select Template
-          </Text>
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Select Template</Text>
+            <TouchableOpacity onPress={() => setShowTemplatePicker(false)}>
+              <X size={24} color={colors.text} />
+            </TouchableOpacity>
+          </View>
           
           <ScrollView style={styles.templateList}>
             {/* Rest Day Option */}
@@ -654,8 +882,8 @@ export default function CreatePlanScreen() {
               onPress={() => handleTemplateSelect(null)}
             >
               <View style={styles.templateInfo}>
-                <Text style={styles.templateOptionName}>Rest Day</Text>
-                <Text style={styles.templateOptionDescription}>No workout scheduled</Text>
+                <Text style={styles.templateName}>Rest Day</Text>
+                <Text style={styles.templateCategory}>No workout scheduled</Text>
               </View>
             </TouchableOpacity>
 
@@ -664,20 +892,59 @@ export default function CreatePlanScreen() {
               <TouchableOpacity
                 key={template.id}
                 style={styles.templateOption}
-                onPress={() => handleTemplateSelect(template)}
+                onPress={() => handleTemplateSelect(template.id)}
               >
                 <View style={styles.templateInfo}>
-                  <Text style={styles.templateOptionName}>{template.name}</Text>
-                  <Text style={styles.templateOptionDescription}>
-                    {template.exercises.length} exercises • {template.duration} min
+                  <Text style={styles.templateName}>{template.name}</Text>
+                  <Text style={styles.templateCategory}>{template.category}</Text>
+                  <Text style={styles.templateDuration}>
+                    {template.estimated_duration_minutes} minutes
                   </Text>
-                  <Text style={styles.templateOptionCategory}>{template.category}</Text>
                 </View>
+                <Dumbbell size={20} color={colors.primary} />
               </TouchableOpacity>
             ))}
           </ScrollView>
-        </View>
+        </SafeAreaView>
       </Modal>
+
+      {/* Date Pickers */}
+      {showStartDatePicker && (
+        <DateTimePicker
+          value={startDate}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={(event, selectedDate) => {
+            setShowStartDatePicker(false);
+            if (selectedDate) {
+              setStartDate(selectedDate);
+            }
+          }}
+        />
+      )}
+
+      {showEndDatePicker && (
+        <DateTimePicker
+          value={endDate}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={(event, selectedDate) => {
+            setShowEndDatePicker(false);
+            if (selectedDate) {
+              setEndDate(selectedDate);
+            }
+          }}
+        />
+      )}
+
+      {showCustomDatePicker && (
+        <DateTimePicker
+          value={customWorkoutDate}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={handleCustomDateSelect}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -686,6 +953,16 @@ const createStyles = (colors: any) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 16,
+    color: colors.textSecondary,
   },
   header: {
     flexDirection: 'row',
@@ -707,10 +984,13 @@ const createStyles = (colors: any) => StyleSheet.create({
     textAlign: 'center',
   },
   saveButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: colors.primary,
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 8,
+    gap: 4,
   },
   saveButtonDisabled: {
     opacity: 0.6,
@@ -728,28 +1008,23 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.borderLight,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
   sectionTitle: {
     fontFamily: 'Inter-SemiBold',
     fontSize: 18,
     color: colors.text,
-    marginBottom: 8,
-  },
-  sectionSubtitle: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 14,
-    color: colors.textSecondary,
     marginBottom: 16,
-    lineHeight: 20,
+  },
+  refreshButton: {
+    padding: 4,
   },
   formField: {
     marginBottom: 16,
-  },
-  formRow: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  formFieldHalf: {
-    flex: 1,
   },
   fieldLabel: {
     fontFamily: 'Inter-Medium',
@@ -768,7 +1043,109 @@ const createStyles = (colors: any) => StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
   },
+  textArea: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
   picker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  pickerText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 16,
+    color: colors.text,
+    flex: 1,
+  },
+  placeholderText: {
+    color: colors.textTertiary,
+  },
+  noClientsContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+  },
+  noClientsTitle: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 18,
+    color: colors.text,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  noClientsText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 14,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  refreshClientsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  refreshClientsText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: colors.primary,
+  },
+  dateRow: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  dateField: {
+    flex: 1,
+  },
+  dateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  dateButtonText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 16,
+    color: colors.text,
+  },
+  scheduleContainer: {
+    marginTop: 8,
+  },
+  scheduleTitle: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 16,
+    color: colors.text,
+    marginBottom: 16,
+  },
+  dayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  dayLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 14,
+    color: colors.text,
+    width: 80,
+  },
+  templateButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -777,76 +1154,15 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingVertical: 8,
   },
-  pickerText: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 16,
-    color: colors.text,
-  },
-  placeholderText: {
-    color: colors.textTertiary,
-  },
-  scheduleDescription: {
+  templateButtonText: {
     fontFamily: 'Inter-Regular',
     fontSize: 14,
-    color: colors.textSecondary,
-    marginTop: 8,
-    fontStyle: 'italic',
-  },
-  weekGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  dayCard: {
-    width: '47%',
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 2,
-    minHeight: 80,
-    justifyContent: 'center',
-  },
-  activeDayCard: {
-    borderColor: colors.primary,
-    backgroundColor: `${colors.primary}10`,
-  },
-  restDayCard: {
-    borderColor: colors.border,
-  },
-  dayName: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 14,
-    marginBottom: 4,
-  },
-  activeDayName: {
-    color: colors.primary,
-  },
-  restDayName: {
     color: colors.text,
-  },
-  templateName: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  activeTemplateName: {
-    color: colors.text,
-  },
-  restTemplateName: {
-    color: colors.textSecondary,
-  },
-  // Monthly Schedule Styles
-  monthlyContainer: {
-    gap: 20,
   },
   weekContainer: {
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
+    marginBottom: 24,
   },
   weekHeader: {
     flexDirection: 'row',
@@ -859,72 +1175,39 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 16,
     color: colors.text,
   },
-  weekActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  weekActionButton: {
+  copyButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.surfaceSecondary,
-    borderRadius: 16,
+    borderRadius: 6,
     paddingHorizontal: 8,
     paddingVertical: 4,
+    gap: 4,
   },
-  weekActionText: {
+  copyButtonText: {
     fontFamily: 'Inter-Medium',
     fontSize: 12,
     color: colors.primary,
-    marginLeft: 4,
-  },
-  monthlyDayCard: {
-    width: '13%',
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: 8,
-    padding: 8,
-    borderWidth: 1,
-    minHeight: 60,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  monthlyDayName: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 10,
-    marginBottom: 4,
-  },
-  monthlyTemplateName: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 8,
-    textAlign: 'center',
-    lineHeight: 10,
-  },
-  // Custom Schedule Styles
-  customContainer: {
-    gap: 16,
   },
   customHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 16,
   },
-  customTitle: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 16,
-    color: colors.text,
-  },
-  addDayButton: {
+  addButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.surfaceSecondary,
-    borderRadius: 16,
+    borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
+    gap: 4,
   },
-  addDayText: {
+  addButtonText: {
     fontFamily: 'Inter-SemiBold',
     fontSize: 14,
     color: colors.primary,
-    marginLeft: 4,
   },
   emptyCustom: {
     alignItems: 'center',
@@ -932,135 +1215,64 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   emptyCustomText: {
     fontFamily: 'Inter-Regular',
-    fontSize: 16,
+    fontSize: 14,
     color: colors.textSecondary,
-    marginBottom: 16,
   },
-  addFirstDayButton: {
-    backgroundColor: colors.primary,
-    borderRadius: 8,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-  },
-  addFirstDayText: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 16,
-    color: '#FFFFFF',
-  },
-  customDayCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  customDayHeader: {
+  customWorkoutRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
   },
-  customDayInputs: {
+  customWorkoutInfo: {
     flex: 1,
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
   },
-  customDayLabel: {
-    flex: 1,
-    fontFamily: 'Inter-Regular',
+  customWorkoutDate: {
+    fontFamily: 'Inter-Medium',
     fontSize: 14,
     color: colors.text,
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+    width: 100,
   },
-  customDayDate: {
-    flex: 1,
-    fontFamily: 'Inter-Regular',
-    fontSize: 14,
-    color: colors.text,
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+  removeButton: {
+    padding: 8,
   },
-  removeDayButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.surfaceSecondary,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  customWorkoutSelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderWidth: 1,
-  },
-  activeCustomWorkout: {
-    borderColor: colors.primary,
-    backgroundColor: `${colors.primary}10`,
-  },
-  restCustomWorkout: {
-    borderColor: colors.border,
-  },
-  customWorkoutText: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 14,
-  },
-  activeCustomWorkoutText: {
-    color: colors.text,
-  },
-  restCustomWorkoutText: {
-    color: colors.textSecondary,
-  },
-  // Modal Styles
   modalContainer: {
     flex: 1,
-    backgroundColor: colors.surface,
-    paddingTop: 20,
-    paddingHorizontal: 20,
+    backgroundColor: colors.background,
   },
-  modalHandle: {
-    width: 40,
-    height: 4,
-    backgroundColor: colors.border,
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 20,
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   modalTitle: {
     fontFamily: 'Inter-Bold',
     fontSize: 20,
     color: colors.text,
-    textAlign: 'center',
-    marginBottom: 32,
   },
   clientList: {
     flex: 1,
+    paddingHorizontal: 20,
   },
   clientOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surfaceSecondary,
+    justifyContent: 'space-between',
+    backgroundColor: colors.surface,
     borderRadius: 12,
     padding: 16,
-    marginBottom: 8,
+    marginVertical: 4,
   },
   selectedClientOption: {
-    backgroundColor: `${colors.primary}20`,
+    backgroundColor: colors.primary + '20',
     borderWidth: 1,
     borderColor: colors.primary,
-  },
-  clientAvatar: {
-    fontSize: 24,
-    marginRight: 16,
   },
   clientInfo: {
     flex: 1,
@@ -1077,58 +1289,50 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: colors.textSecondary,
   },
   selectedIndicator: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  selectedText: {
-    color: '#FFFFFF',
-    fontSize: 12,
     fontFamily: 'Inter-Bold',
+    fontSize: 16,
+    color: colors.primary,
   },
   scheduleTypeList: {
-    flex: 1,
+    padding: 20,
   },
   scheduleTypeOption: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: colors.surfaceSecondary,
+    backgroundColor: colors.surface,
     borderRadius: 12,
-    padding: 20,
-    marginBottom: 12,
+    padding: 16,
+    marginBottom: 8,
   },
   selectedScheduleTypeOption: {
-    backgroundColor: `${colors.primary}20`,
+    backgroundColor: colors.primary + '20',
     borderWidth: 1,
     borderColor: colors.primary,
   },
   scheduleTypeInfo: {
     flex: 1,
   },
-  scheduleTypeTitle: {
+  scheduleTypeLabel: {
     fontFamily: 'Inter-SemiBold',
     fontSize: 16,
     color: colors.text,
     marginBottom: 4,
   },
-  selectedScheduleTypeTitle: {
-    color: colors.primary,
-  },
   scheduleTypeDescription: {
     fontFamily: 'Inter-Regular',
     fontSize: 14,
     color: colors.textSecondary,
-    lineHeight: 20,
   },
   templateList: {
     flex: 1,
+    paddingHorizontal: 20,
   },
   templateOption: {
-    backgroundColor: colors.surfaceSecondary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.surface,
     borderRadius: 12,
     padding: 16,
     marginBottom: 8,
@@ -1136,21 +1340,21 @@ const createStyles = (colors: any) => StyleSheet.create({
   templateInfo: {
     flex: 1,
   },
-  templateOptionName: {
+  templateName: {
     fontFamily: 'Inter-SemiBold',
     fontSize: 16,
     color: colors.text,
     marginBottom: 4,
   },
-  templateOptionDescription: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginBottom: 4,
-  },
-  templateOptionCategory: {
+  templateCategory: {
     fontFamily: 'Inter-Medium',
     fontSize: 12,
     color: colors.primary,
+    marginBottom: 2,
+  },
+  templateDuration: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: colors.textSecondary,
   },
 });

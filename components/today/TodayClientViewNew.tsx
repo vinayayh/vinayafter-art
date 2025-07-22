@@ -42,6 +42,7 @@ import WaterCard from '@/components/WaterCard';
 import HeartRateCard from '@/components/HeartRateCard';
 import WeightMetricsCard from '@/components/WeightMetricsCard';
 import WalkMap from '@/components/WalkMap';
+import { getWorkoutTemplate } from '../../lib/workoutTemplates';
 
 
 // Sample data - in a real app, this would come from Supabase and/or Google Fit API
@@ -100,10 +101,49 @@ const normalizeSession = (session: any) => ({
 // Helper to get templateId for a day, case-insensitive
 const getTemplateIdForDay = (scheduleData: any, day: string) => {
   if (!scheduleData) return null;
-  // Always use lowercase for keys and lookup
+  // Try direct match
   if (scheduleData[day]) return scheduleData[day];
-  const foundKey = Object.keys(scheduleData).find(k => k.toLowerCase() === day);
+  // Try case-insensitive match
+  const foundKey = Object.keys(scheduleData).find(k => k.trim().toLowerCase() === day.trim().toLowerCase());
   return foundKey ? scheduleData[foundKey] : null;
+};
+
+// Assume templates is an array of template objects with an 'id' property
+type Template = { id: string };
+const getValidTemplateIds = (
+  scheduleData: Record<string, string>,
+  templates: Template[]
+): string[] => {
+  // Normalize all template IDs for comparison
+  const templateIdSet = new Set(templates.map((t) => t.id.trim().toLowerCase()));
+
+  // Go through each schedule entry and check if it exists in templates
+  return Object.entries(scheduleData)
+    .map(([day, id]) => {
+      const normalizedId = typeof id === 'string' ? id.trim().toLowerCase() : '';
+      const isValid = templateIdSet.has(normalizedId);
+      console.log(`Day: ${day}, Raw ID: "${id}", Normalized: "${normalizedId}", Valid: ${isValid}`);
+      return isValid ? id : null;
+    })
+    .filter((id): id is string => Boolean(id)); // Remove nulls and ensure type
+};
+
+// Add helper for plan duration
+const getPlanDuration = (plan) => {
+  if (!plan) return '';
+  const start = new Date(plan.start_date);
+  const end = new Date(plan.end_date);
+  const diffTime = Math.abs(end.getTime() - start.getTime());
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  if (diffDays < 7) {
+    return `${diffDays} days`;
+  } else if (diffDays < 30) {
+    const weeks = Math.floor(diffDays / 7);
+    return `${weeks} week${weeks > 1 ? 's' : ''}`;
+  } else {
+    const months = Math.floor(diffDays / 30);
+    return `${months} month${months > 1 ? 's' : ''}`;
+  }
 };
 
 export default function TodayClientViewNew() {
@@ -111,6 +151,10 @@ export default function TodayClientViewNew() {
 
   const [waterCount, setWaterCount] = useState(SAMPLE_DATA.water.current);
   const [isLoading, setIsLoading] = useState(false);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [todaysPlanTemplate, setTodaysPlanTemplate] = useState<any>(null);
+  const [planLoading, setPlanLoading] = useState(false);
   
   const incrementWater = async () => {
   };
@@ -190,6 +234,34 @@ export default function TodayClientViewNew() {
   
   const clientData = data as TodayClientData;
   
+  // Fetch templates referenced in the plan schedule
+  useEffect(() => {
+    const fetchTemplates = async () => {
+      if (!clientData?.todayPlan?.plan?.schedule_data) return;
+      const scheduleData = clientData.todayPlan.plan.schedule_data;
+      const templateIds = Object.values(scheduleData).filter((id): id is string => typeof id === 'string' && !!id);
+      if (templateIds.length === 0) {
+        setTemplates([]);
+        return;
+      }
+      setTemplatesLoading(true);
+      try {
+        const fetchedTemplates = await Promise.all(
+          templateIds.map(async (id) => {
+            const template = await getWorkoutTemplate(id);
+            return template ? { id: template.id } : null;
+          })
+        );
+        setTemplates(fetchedTemplates.filter(Boolean) as Template[]);
+      } catch (e) {
+        setTemplates([]);
+      } finally {
+        setTemplatesLoading(false);
+      }
+    };
+    fetchTemplates();
+  }, [clientData?.todayPlan?.plan?.schedule_data]);
+
   useEffect(() => {
     const loadTodaysTrainingSessions = async () => {
       if (!clientData?.profile?.id) return;
@@ -223,6 +295,56 @@ export default function TodayClientViewNew() {
     };
     fetchReminders();
   }, []);
+
+  useEffect(() => {
+    const fetchTodaysPlanTemplate = async () => {
+      setPlanLoading(true);
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const clientId = clientData?.profile?.id;
+        if (!clientId) {
+          setTodaysPlanTemplate(null);
+          setPlanLoading(false);
+          return;
+        }
+        const { data, error } = await supabase
+          .from('plan_sessions')
+          .select(`
+            *,
+            plan:workout_plans!inner(
+              client_id,
+              name,
+              schedule_data
+            ),
+            template:workout_templates(
+              *,
+              exercises:template_exercises(
+                *,
+                exercise:exercise_id(*)
+              )
+            )
+          `)
+          .eq('plan.client_id', clientId)
+          .eq('scheduled_date', today)
+          .single();
+        console.log('Fetched todayPlan:', data, error);
+        if (data) {
+          console.log('Fetched template:', data.template);
+          if (data.template) {
+            console.log('Fetched exercises:', data.template.exercises);
+          }
+        }
+        if (error) {
+          setTodaysPlanTemplate(null);
+        } else {
+          setTodaysPlanTemplate(data?.template || null);
+        }
+      } finally {
+        setPlanLoading(false);
+      }
+    };
+    fetchTodaysPlanTemplate();
+  }, [clientData?.profile?.id]);
   console.log('clientData:', clientData);
   console.log('clientData.profile:', clientData?.profile);
   console.log('clientData.workoutSessions:', clientData?.workoutSessions);
@@ -337,19 +459,14 @@ export default function TodayClientViewNew() {
   // Separate logic for today's training session and plan workout
   const todaysTrainingSession = todaysTrainingSessions.find(session => session.status === 'scheduled' || session.status === 'completed');
   const todaysPlanWorkout = (() => {
-    if (clientData?.todayPlan?.plan && clientData.todayPlan.plan.schedule_data) {
+    if (todaysPlanTemplate && clientData?.todayPlan?.plan && clientData.todayPlan.plan.schedule_data) {
       const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-      console.log('Today is:', dayOfWeek); // Should log "monday"
-      console.log('Plan schedule keys:', Object.keys(clientData.todayPlan.plan.schedule_data)); // Should include "monday"
       const templateId = getTemplateIdForDay(clientData.todayPlan.plan.schedule_data, dayOfWeek);
-      console.log('🎯 Template ID for today:', templateId);
-     
-      if (templateId && clientData.todayPlan.template && clientData.todayPlan.template.id === templateId) {
-        // Fill required TrainingSession fields with empty strings
+      if (templateId && todaysPlanTemplate.id === templateId) {
         return {
-          id: `plan-${clientData.todayPlan.template.id}`,
-          template: clientData.todayPlan.template,
-          template_id: clientData.todayPlan.template.id,
+          id: `plan-${todaysPlanTemplate.id}`,
+          template: todaysPlanTemplate,
+          template_id: todaysPlanTemplate.id,
           status: 'scheduled',
           scheduled_date: new Date().toISOString().split('T')[0],
           type: 'personal_training' as const,
@@ -470,7 +587,7 @@ export default function TodayClientViewNew() {
     const template = session.template;
     const sessionName = template?.name || session.type || 'Training Session';
     const sessionDuration = template?.estimated_duration_minutes || session.duration_minutes || session.duration || 60;
-    const sessionExercises = template?.exercises || [];
+    const sessionExercises = Array.isArray(template?.exercises) ? template.exercises.filter(Boolean) : [];
     return (
       <TouchableOpacity 
         style={styles.workoutCardContainer}
@@ -598,7 +715,8 @@ export default function TodayClientViewNew() {
     const template = session.template;
     const sessionName = template?.name || session.type || 'Workout Plan';
     const sessionDuration = template?.estimated_duration_minutes || session.duration_minutes || session.duration || 60;
-    const sessionExercises = template?.exercises || [];
+    const sessionExercises = Array.isArray(template?.exercises) ? template.exercises.filter(Boolean) : [];
+    console.log('Plan workout exercises:', sessionExercises);
     return (
       <TouchableOpacity 
         style={styles.workoutCardContainer}
@@ -613,10 +731,10 @@ export default function TodayClientViewNew() {
         >
           {/* Hero Image */}
           <View style={styles.workoutHeroContainer}>
-            <Image 
-              source={{ uri: getValidImageUrl(template?.thumbnail_url || template?.image_url || getWorkoutImageByCategory(template?.category || 'Full Body')) }}
-              style={styles.workoutHeroImage}
-            />
+          <Image
+  source={{ uri: getValidImageUrl(template?.thumbnail_url ) }}
+  style={styles.workoutHeroImage}
+/>
             <View style={styles.workoutOverlay}>
               <View style={styles.workoutInfo}>
                 <Text style={styles.workoutLabel}>TODAY'S PLAN WORKOUT</Text>
@@ -648,16 +766,16 @@ export default function TodayClientViewNew() {
                 contentContainerStyle={styles.exerciseScrollContent}
               >
                 {sessionExercises.slice(0, 5).map((exercise: any, index: number) => (
-                  <View key={exercise.id} style={styles.exercisePreviewItem}>
+                  <View key={exercise.id || index} style={styles.exercisePreviewItem}>
                     <Image 
-                      source={{ uri: getValidImageUrl(exercise.exercise.image_url || getExerciseImage(exercise.exercise.name, index)) }}
+                      source={{ uri: getValidImageUrl(exercise.exercise?.image_url || getExerciseImage(exercise.exercise?.name || '', index)) }}
                       style={styles.exercisePreviewImage}
                     />
                     <Text style={styles.exercisePreviewName} numberOfLines={2}>
-                      {exercise.exercise.name}
+                      {exercise.exercise?.name || 'Unnamed'}
                     </Text>
                     <Text style={styles.exercisePreviewSets}>
-                      {exercise.sets_config.length} sets
+                      {exercise.sets_config?.length || 0} sets
                     </Text>
                   </View>
                 ))}
@@ -764,6 +882,19 @@ export default function TodayClientViewNew() {
     );
   }
 
+  if (templatesLoading) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ fontSize: 16, color: '#000000' }}>Loading templates...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const scheduleData = clientData?.todayPlan?.plan?.schedule_data || {};
+  const validTemplateIds = getValidTemplateIds(scheduleData, templates);
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView 
@@ -779,6 +910,36 @@ export default function TodayClientViewNew() {
           <Text style={styles.greetingText}>
             {getGreeting()},{userName}! 👋
           </Text>
+        </View>
+
+        {/* Direct Today's Plan Template Display */}
+        <View style={styles.card}>
+          {planLoading ? (
+            <Text>Loading today's workout plan...</Text>
+          ) : !todaysPlanTemplate ? (
+            <Text>No workout plan scheduled for today.</Text>
+          ) : (
+            <View>
+              <Text style={{ fontWeight: 'bold', fontSize: 18, marginBottom: 8 }}>
+                Today's Workout Plan: {todaysPlanTemplate.name}
+              </Text>
+              <Text>Duration: {getPlanDuration(clientData?.todayPlan?.plan)}</Text>
+              {Array.isArray(todaysPlanTemplate.exercises) && (
+                <Text>Exercises: {todaysPlanTemplate.exercises.length}</Text>
+              )}
+              {Array.isArray(todaysPlanTemplate.exercises) && todaysPlanTemplate.exercises.filter(Boolean).map((ex: any, idx: number) => (
+                <View key={ex.id || idx} style={{ marginBottom: 8 }}>
+                  <Text style={{ fontWeight: '600' }}>{ex.exercise?.name}</Text>
+                  <Text>Sets: {ex.sets_config?.length || 0}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+
+        {/* Valid Template IDs Card */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Valid Template IDs: {validTemplateIds.join(', ')}</Text>
         </View>
 
         {/* Today's Training Session Card */}
